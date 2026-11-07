@@ -187,6 +187,19 @@ class NBD_S3_Tier_Lifecycle {
         $base_dir  = defined( 'NBDESIGNER_CUSTOMER_DIR' ) ? NBDESIGNER_CUSTOMER_DIR : ( WP_CONTENT_DIR . '/uploads/nbdesigner/designs' );
         $local_dir = rtrim( $base_dir, '/' ) . '/' . $item_key;
 
+        // Preserve original folder modification timestamp
+        $preserved_mtime = is_dir( $local_dir ) ? (int) @filemtime( $local_dir ) : 0;
+        if ( empty( $preserved_mtime ) && ! empty( $objects ) ) {
+            foreach ( $objects as $obj ) {
+                if ( ! empty( $obj['last_modified'] ) ) {
+                    $ts = strtotime( (string) $obj['last_modified'] );
+                    if ( $ts > 0 && ( empty( $preserved_mtime ) || $ts < $preserved_mtime ) ) {
+                        $preserved_mtime = $ts;
+                    }
+                }
+            }
+        }
+
         if ( ! is_dir( $local_dir ) ) {
             wp_mkdir_p( $local_dir );
         }
@@ -204,6 +217,13 @@ class NBD_S3_Tier_Lifecycle {
                 // Log and continue attempting remaining files
                 continue;
             }
+
+            if ( ! empty( $obj['last_modified'] ) ) {
+                $file_ts = strtotime( (string) $obj['last_modified'] );
+                if ( $file_ts > 0 ) {
+                    @touch( $target_file, $file_ts );
+                }
+            }
         }
 
         delete_transient( 'nbd_s3_explorer_dirs_v2' );
@@ -211,6 +231,11 @@ class NBD_S3_Tier_Lifecycle {
 
         if ( is_dir( $local_dir ) && file_exists( $local_dir . '/.s3_offloaded' ) ) {
             @unlink( $local_dir . '/.s3_offloaded' );
+        }
+
+        // Restore preserved folder modification time so folder age is retained
+        if ( $preserved_mtime > 0 && is_dir( $local_dir ) ) {
+            @touch( $local_dir, $preserved_mtime );
         }
 
         global $wpdb;

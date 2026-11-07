@@ -602,7 +602,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.0.12'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.0.14'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1 max-w-2xl leading-normal">
@@ -1058,16 +1058,16 @@ export default function App() {
                                       <ShieldCheck className="w-3 h-3 text-blue-600" /> Tier 1 Whitelist
                                     </span>
                                   ) : f.is_offloaded ? (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200">
-                                      <Cloud className="w-3 h-3 text-purple-600" /> Offloaded in S3
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                      <Archive className="w-3 h-3 text-indigo-600" /> Tier 3 S3 Offloaded
                                     </span>
                                   ) : f.is_aged ? (
                                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                                      <HardDrive className="w-3 h-3 text-amber-600" /> Aged (Cold Candidate)
+                                      <Clock className="w-3 h-3 text-amber-600" /> Aged (Tier 3 Candidate)
                                     </span>
                                   ) : (
                                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                      <HardDrive className="w-3 h-3 text-emerald-600" /> Active Local SSD
+                                      <Flame className="w-3 h-3 text-emerald-600" /> Tier 2 Active Local SSD
                                     </span>
                                   )}
                                 </td>
@@ -1416,33 +1416,33 @@ export default function App() {
             </div>
 
             {/* Tier 2 Hot Active Orders Card */}
-            <div className="bg-gradient-to-r from-amber-50/80 to-orange-50/50 border border-amber-200 rounded-2xl p-5">
+            <div className="bg-gradient-to-r from-emerald-50/80 to-teal-50/50 border border-emerald-200 rounded-2xl p-5">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-start gap-3.5">
-                  <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
                     <Flame className="w-5 h-5" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-bold text-amber-950">
+                      <h3 className="text-sm font-bold text-emerald-950">
                         Tier 2: Hot Active Orders (Local NVMe SSD Fast Fulfillment)
                       </h3>
-                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
                         0 to {settings.cold_retention_days} Days
                       </span>
                     </div>
-                    <p className="text-xs text-amber-900/90 mt-1 leading-relaxed">
+                    <p className="text-xs text-emerald-900/90 mt-1 leading-relaxed">
                       All customer designs for active production and orders younger than <strong>{settings.cold_retention_days} days</strong> are kept 100% on fast local NVMe SSD.
                     </p>
-                    <p className="text-xs text-amber-800/80 mt-1">
+                    <p className="text-xs text-emerald-800/80 mt-1">
                       <strong>Why:</strong> Factory print production, RIP queues, and TCPDF rendering engines require zero-latency local disk access during active manufacturing. Once an order passes {settings.cold_retention_days} days, it automatically transitions into <strong>Tier 3 Cold Storage</strong>.
                     </p>
                   </div>
                 </div>
 
-                <div className="bg-white/90 border border-amber-200 px-3.5 py-2 rounded-xl text-center self-start md:self-center flex-shrink-0 shadow-xs">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 block">Fulfillment SLA</span>
-                  <span className="text-xs font-extrabold text-amber-900 flex items-center gap-1.5 justify-center mt-0.5">
+                <div className="bg-white/90 border border-emerald-200 px-3.5 py-2 rounded-xl text-center self-start md:self-center flex-shrink-0 shadow-xs">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">Fulfillment SLA</span>
+                  <span className="text-xs font-extrabold text-emerald-900 flex items-center gap-1.5 justify-center mt-0.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> 100% Zero-Latency SSD
                   </span>
                 </div>
@@ -1978,51 +1978,51 @@ export default function App() {
 
               {stats ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {/* Card 1 */}
-                  <div className="p-5 bg-gradient-to-br from-emerald-50 to-slate-50 border border-emerald-200 rounded-2xl">
-                    <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1.5">
-                      <ShieldCheck className="w-4 h-4 text-emerald-600" /> Whitelisted Templates
-                    </span>
-                    <div className="mt-3 text-3xl font-extrabold text-emerald-950">
-                      {stats.templates_count || stats.templates_whitelisted || 0}
-                    </div>
-                    <p className="text-xs text-emerald-700 mt-1">Protected on local NVMe SSD</p>
-                  </div>
-
-                  {/* Card 2 */}
+                  {/* Card 1: Tier 1 Whitelisted Templates (Blue) */}
                   <div className="p-5 bg-gradient-to-br from-blue-50 to-slate-50 border border-blue-200 rounded-2xl">
                     <span className="text-xs font-bold uppercase tracking-wider text-blue-700 flex items-center gap-1.5">
-                      <HardDrive className="w-4 h-4 text-blue-600" /> Active Local Designs
+                      <ShieldCheck className="w-4 h-4 text-blue-600" /> Tier 1: Whitelisted Templates
                     </span>
                     <div className="mt-3 text-3xl font-extrabold text-blue-950">
+                      {stats.templates_count || stats.templates_whitelisted || 0}
+                    </div>
+                    <p className="text-xs text-blue-700 mt-1">Protected on local NVMe SSD</p>
+                  </div>
+
+                  {/* Card 2: Tier 2 Active Local Designs (Emerald) */}
+                  <div className="p-5 bg-gradient-to-br from-emerald-50 to-slate-50 border border-emerald-200 rounded-2xl">
+                    <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1.5">
+                      <Flame className="w-4 h-4 text-emerald-600" /> Tier 2: Active Local Designs
+                    </span>
+                    <div className="mt-3 text-3xl font-extrabold text-emerald-950">
                       {stats.local_designs_count || 0}
                     </div>
-                    <p className="text-xs text-blue-700 mt-1">Folders in <code>designs/</code></p>
+                    <p className="text-xs text-emerald-700 mt-1">Hot orders &lt; {settings.cold_retention_days}d on SSD</p>
                   </div>
 
-                  {/* Card 3 */}
-                  <div className="p-5 bg-gradient-to-br from-purple-50 to-slate-50 border border-purple-200 rounded-2xl">
-                    <span className="text-xs font-bold uppercase tracking-wider text-purple-700 flex items-center gap-1.5">
-                      <Cloud className="w-4 h-4 text-purple-600" /> Offloaded in S3
+                  {/* Card 3: Tier 3 Offloaded in S3 (Indigo) */}
+                  <div className="p-5 bg-gradient-to-br from-indigo-50 to-slate-50 border border-indigo-200 rounded-2xl">
+                    <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 flex items-center gap-1.5">
+                      <Archive className="w-4 h-4 text-indigo-600" /> Tier 3: Offloaded in S3
                     </span>
-                    <div className="mt-3 text-3xl font-extrabold text-purple-950">
+                    <div className="mt-3 text-3xl font-extrabold text-indigo-950">
                       {stats.offloaded_orders_count || stats.offloaded_count || 0}
                     </div>
-                    <p className="text-xs text-purple-700 mt-1">Hydrated on-demand if opened</p>
+                    <p className="text-xs text-indigo-700 mt-1">Archived cold storage, hydrated on-demand</p>
                   </div>
 
-                  {/* Card 4 */}
-                  <div className="p-5 bg-gradient-to-br from-amber-50 to-slate-50 border border-amber-200 rounded-2xl">
-                    <span className="text-xs font-bold uppercase tracking-wider text-amber-700 flex items-center gap-1.5">
-                      <Type className="w-4 h-4 text-amber-600" /> Dual-Synced Fonts
+                  {/* Card 4: Tier 4 Dual-Synced Fonts (Purple) */}
+                  <div className="p-5 bg-gradient-to-br from-purple-50 to-slate-50 border border-purple-200 rounded-2xl">
+                    <span className="text-xs font-bold uppercase tracking-wider text-purple-700 flex items-center gap-1.5">
+                      <Type className="w-4 h-4 text-purple-600" /> Tier 4: Dual-Synced Fonts
                     </span>
-                    <div className="mt-3 text-3xl font-extrabold text-amber-950">
+                    <div className="mt-3 text-3xl font-extrabold text-purple-950">
                       {stats.local_fonts_count || stats.fonts_count || 0}
-                      <span className="text-sm font-normal text-amber-800 ml-2">
+                      <span className="text-sm font-normal text-purple-800 ml-2">
                         ({stats.local_fonts_size || '0 MB'})
                       </span>
                     </div>
-                    <p className="text-xs text-amber-700 mt-1">Local SSD + S3 CDN edge</p>
+                    <p className="text-xs text-purple-700 mt-1">Local SSD + S3 CDN edge</p>
                   </div>
                 </div>
               ) : (
