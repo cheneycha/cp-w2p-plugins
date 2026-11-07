@@ -32,6 +32,9 @@ import {
   ScrollText,
   Radio,
   Sliders,
+  Flame,
+  Archive,
+  ExternalLink,
 } from 'lucide-react';
 
 const PRESETS = {
@@ -1361,33 +1364,81 @@ export default function App() {
               </div>
             </div>
 
-            {/* Cold Order Offload Setting */}
-            <div className="space-y-5 pt-2">
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
-                <label className="flex items-start gap-3 cursor-pointer">
+            {/* Tier 2 Hot Active Orders Card */}
+            <div className="bg-gradient-to-r from-amber-50/80 to-orange-50/50 border border-amber-200 rounded-2xl p-5">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                    <Flame className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-amber-950">
+                        Tier 2: Hot Active Orders (Local NVMe SSD Fast Fulfillment)
+                      </h3>
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                        0 to {settings.cold_retention_days} Days
+                      </span>
+                    </div>
+                    <p className="text-xs text-amber-900/90 mt-1 leading-relaxed">
+                      All customer designs for active production and orders younger than <strong>{settings.cold_retention_days} days</strong> are kept 100% on fast local NVMe SSD.
+                    </p>
+                    <p className="text-xs text-amber-800/80 mt-1">
+                      <strong>Why:</strong> Factory print production, RIP queues, and TCPDF rendering engines require zero-latency local disk access during active manufacturing. Once an order passes {settings.cold_retention_days} days, it automatically transitions into <strong>Tier 3 Cold Storage</strong>.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-white/90 border border-amber-200 px-3.5 py-2 rounded-xl text-center self-start md:self-center flex-shrink-0 shadow-xs">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 block">Fulfillment SLA</span>
+                  <span className="text-xs font-extrabold text-amber-900 flex items-center gap-1.5 justify-center mt-0.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> 100% Zero-Latency SSD
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Tier 3 Cold Order Offload Setting */}
+            <div className="border border-indigo-200 bg-gradient-to-r from-indigo-50/50 to-slate-50/50 rounded-2xl p-5 space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                    <Archive className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-slate-900">
+                        Tier 3: Cold Storage Offload (S3 Archiving & Smart Purge)
+                      </h3>
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
+                        &gt; {settings.cold_retention_days} Days
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                      Completed order designs older than {settings.cold_retention_days} days are copied to S3, verified via MD5/ETag checksums, and local disk copies purged to reclaim SSD storage.
+                    </p>
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2 cursor-pointer self-start md:self-center bg-white px-3.5 py-1.5 rounded-xl border border-slate-200 shadow-sm flex-shrink-0">
                   <input
                     type="checkbox"
                     checked={settings.enable_cold_order_offload}
                     onChange={(e) => setSettings({ ...settings, enable_cold_order_offload: e.target.checked })}
-                    className="w-4 h-4 mt-0.5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
                   />
-                  <div>
-                    <span className="text-sm font-bold text-slate-900">
-                      Enable Automated Tier 3 Cold Storage Offload for Orders & Guest Designs
-                    </span>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Completed order designs older than the retention threshold will be copied to S3, verified, and local copies purged.
-                    </p>
-                  </div>
+                  <span className="text-xs font-bold text-slate-800">
+                    {settings.enable_cold_order_offload ? 'Active' : 'Disabled'}
+                  </span>
                 </label>
               </div>
 
               {settings.enable_cold_order_offload && (
-                <div className="ml-4 pl-4 border-l-2 border-indigo-200 space-y-5 bg-slate-50/60 p-5 rounded-xl border border-slate-200">
+                <div className="border-t border-indigo-100 pt-4 space-y-5 bg-white/70 p-4 rounded-xl border border-slate-200">
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <label className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                        Cold Retention Threshold
+                        Cold Retention Threshold (Tier 2 Hot → Tier 3 Cold Transition)
                       </label>
                       <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
                         {settings.cold_retention_days} Days
@@ -1450,26 +1501,105 @@ export default function App() {
                   </div>
                 </div>
               )}
+            </div>
 
-              {/* Draft Garbage Collection */}
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
-                <label className="flex items-start gap-3 cursor-pointer">
+            {/* Tier 4 Font Dual-Sync Card */}
+            <div className="bg-gradient-to-r from-purple-50/80 to-indigo-50/60 border border-purple-200 rounded-2xl p-5">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-10 h-10 rounded-xl bg-purple-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                    <Type className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-purple-950">
+                        Tier 4: Font Dual-Sync Engine (Local NVMe SSD + CDN Edge)
+                      </h3>
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
+                        Dual-Storage
+                      </span>
+                    </div>
+                    <p className="text-xs text-purple-900/90 mt-1 leading-relaxed">
+                      Typography requires a hybrid dual-sync architecture: Fonts remain on local NVMe SSD for TCPDF high-resolution vector PDF rendering, while simultaneously syncing to S3 / CloudFront with 30-day immutable caching (<code>max-age=2592000</code>) for instant browser canvas rendering.
+                    </p>
+                    <p className="text-xs text-purple-800/80 mt-1">
+                      Font dual-sync controls, auto-sync triggers, and manual font sync buttons are managed in the dedicated <strong>Font Dual-Sync</strong> tab.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('fonts')}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-sm transition whitespace-nowrap self-start md:self-center cursor-pointer"
+                >
+                  <span>Open Font Dual-Sync Settings</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Tier 5 Draft Garbage Collection */}
+            <div className="border border-slate-200 bg-slate-50/80 rounded-2xl p-5 space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-10 h-10 rounded-xl bg-slate-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                    <Trash2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-slate-900">
+                        Tier 5: Garbage Collect Abandoned Guest Drafts & Temporary Uploads
+                      </h3>
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
+                        &gt; {settings.abandoned_drafts_days} Days
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                      Cleans up orphan unpurchased session uploads and temporary files older than {settings.abandoned_drafts_days} days to keep SSD disks lean.
+                    </p>
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2 cursor-pointer self-start md:self-center bg-white px-3.5 py-1.5 rounded-xl border border-slate-200 shadow-sm flex-shrink-0">
                   <input
                     type="checkbox"
                     checked={settings.cleanup_abandoned_drafts}
                     onChange={(e) => setSettings({ ...settings, cleanup_abandoned_drafts: e.target.checked })}
-                    className="w-4 h-4 mt-0.5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
                   />
-                  <div>
-                    <span className="text-sm font-bold text-slate-900">
-                      Tier 5: Garbage Collect Abandoned Guest Drafts & Temporary Uploads
-                    </span>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Cleans up orphan unpurchased session uploads and temporary files older than {settings.abandoned_drafts_days} days to keep SSD disks lean.
-                    </p>
-                  </div>
+                  <span className="text-xs font-bold text-slate-800">
+                    {settings.cleanup_abandoned_drafts ? 'Active' : 'Disabled'}
+                  </span>
                 </label>
               </div>
+
+              {settings.cleanup_abandoned_drafts && (
+                <div className="border-t border-slate-200 pt-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Draft Retention Window
+                    </label>
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-800">
+                      {settings.abandoned_drafts_days} Days
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="30"
+                    value={settings.abandoned_drafts_days}
+                    onChange={(e) => setSettings({ ...settings, abandoned_drafts_days: parseInt(e.target.value, 10) })}
+                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-600"
+                  />
+                  <div className="flex justify-between text-xs text-slate-400 mt-1">
+                    <span>1 day</span>
+                    <span>7 days (Recommended)</span>
+                    <span>30 days</span>
+                  </div>
+                </div>
+              )}
+            </div>
 
               {/* Activity Log Protection Configuration */}
               <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
@@ -1522,7 +1652,6 @@ export default function App() {
                   </div>
                 )}
               </div>
-            </div>
 
             <div className="pt-6 border-t border-slate-100 flex justify-end">
               <button
