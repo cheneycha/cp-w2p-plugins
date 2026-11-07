@@ -76,6 +76,41 @@ const PRESETS = {
   },
 };
 
+function ToggleSwitch({
+  checked,
+  onChange,
+  disabled = false,
+  activeColor = 'bg-indigo-600',
+  size = 'md',
+  ariaLabel = 'Toggle setting',
+}) {
+  const isSm = size === 'sm';
+  const width = isSm ? 'w-9' : 'w-11';
+  const height = isSm ? 'h-5' : 'h-6';
+  const thumbSize = isSm ? 'h-3.5 w-3.5' : 'h-4.5 w-4.5';
+  const translate = isSm
+    ? (checked ? 'translate-x-4' : 'translate-x-0.5')
+    : (checked ? 'translate-x-5.5' : 'translate-x-0.5');
+
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-label={ariaLabel}
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => !disabled && onChange(!checked)}
+      className={`relative inline-flex items-center ${height} ${width} flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed ${
+        checked ? activeColor : 'bg-slate-300'
+      }`}
+    >
+      <span
+        className={`pointer-events-none inline-block ${thumbSize} transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${translate}`}
+      />
+    </button>
+  );
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('explorer');
   const [settings, setSettings] = useState({
@@ -564,7 +599,7 @@ export default function App() {
                 <Sparkles className="w-3.5 h-3.5 text-indigo-300" /> Web-to-Print Tiered Storage Engine
               </span>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v1.0.2 • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.0.6'} • PHP 8.3 & HPOS
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
@@ -1209,21 +1244,30 @@ export default function App() {
                 </p>
               </div>
 
-              <div className="md:col-span-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={settings.use_path_style}
-                    onChange={(e) => setSettings({ ...settings, use_path_style: e.target.checked })}
-                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
-                  />
-                  <span className="text-sm font-bold text-slate-800">
-                    Use Path-Style URLs (<code>endpoint/bucket/...</code>)
-                  </span>
-                </label>
-                <p className="text-xs text-slate-500 ml-7 mt-0.5">
-                  Recommended for Wasabi, Backblaze B2, MinIO, and DigitalOcean Spaces. (Leave unchecked for standard AWS S3 buckets).
-                </p>
+              <div className="md:col-span-2 bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5">
+                    <ToggleSwitch
+                      checked={settings.use_path_style}
+                      onChange={(val) => setSettings({ ...settings, use_path_style: val })}
+                      activeColor="bg-indigo-600"
+                      ariaLabel="Use Path-Style URLs"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-sm font-bold text-slate-800">
+                      Use Path-Style URLs (<code>endpoint/bucket/...</code>)
+                    </span>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Recommended for Wasabi, Backblaze B2, MinIO, and DigitalOcean Spaces. (Turn off for standard AWS S3 virtual-hosted buckets).
+                    </p>
+                  </div>
+                </div>
+                <span className={`text-xs font-bold px-2.5 py-1 rounded-full flex-shrink-0 ${
+                  settings.use_path_style ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-200 text-slate-600'
+                }`}>
+                  {settings.use_path_style ? 'Path-Style ON' : 'Virtual-Host'}
+                </span>
               </div>
             </div>
 
@@ -1315,17 +1359,17 @@ export default function App() {
                   </div>
                 </div>
 
-                <label className="flex items-center gap-3 cursor-pointer self-start md:self-center bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm">
-                  <input
-                    type="checkbox"
-                    checked={settings.sync_paused}
-                    onChange={(e) => setSettings({ ...settings, sync_paused: e.target.checked })}
-                    className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-slate-300 cursor-pointer"
-                  />
-                  <span className="text-xs font-bold text-slate-800">
-                    {settings.sync_paused ? '⏸️ Syncing Paused (Safe)' : '▶️ Syncing Resumed'}
+                <div className="flex items-center gap-3 self-start md:self-center bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm">
+                  <span className={`text-xs font-bold ${settings.sync_paused ? 'text-amber-800' : 'text-emerald-800'}`}>
+                    {settings.sync_paused ? '⏸️ Paused (Safe)' : '▶️ Syncing Active'}
                   </span>
-                </label>
+                  <ToggleSwitch
+                    checked={!settings.sync_paused}
+                    onChange={(val) => setSettings({ ...settings, sync_paused: !val })}
+                    activeColor="bg-emerald-600"
+                    ariaLabel="Toggle Master Sync & Purge Switch"
+                  />
+                </div>
               </div>
 
               {/* Scheduled Run Time & Server Time Display */}
@@ -1420,17 +1464,17 @@ export default function App() {
                   </div>
                 </div>
 
-                <label className="flex items-center gap-2 cursor-pointer self-start md:self-center bg-white px-3.5 py-1.5 rounded-xl border border-slate-200 shadow-sm flex-shrink-0">
-                  <input
-                    type="checkbox"
-                    checked={settings.enable_cold_order_offload}
-                    onChange={(e) => setSettings({ ...settings, enable_cold_order_offload: e.target.checked })}
-                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
-                  />
-                  <span className="text-xs font-bold text-slate-800">
+                <div className="flex items-center gap-2.5 self-start md:self-center bg-white px-3.5 py-1.5 rounded-xl border border-slate-200 shadow-sm flex-shrink-0">
+                  <span className={`text-xs font-bold ${settings.enable_cold_order_offload ? 'text-indigo-900' : 'text-slate-400'}`}>
                     {settings.enable_cold_order_offload ? 'Active' : 'Disabled'}
                   </span>
-                </label>
+                  <ToggleSwitch
+                    checked={settings.enable_cold_order_offload}
+                    onChange={(val) => setSettings({ ...settings, enable_cold_order_offload: val })}
+                    activeColor="bg-indigo-600"
+                    ariaLabel="Toggle Tier 3 Cold Storage Offload"
+                  />
+                </div>
               </div>
 
               {settings.enable_cold_order_offload && (
@@ -1561,17 +1605,17 @@ export default function App() {
                   </div>
                 </div>
 
-                <label className="flex items-center gap-2 cursor-pointer self-start md:self-center bg-white px-3.5 py-1.5 rounded-xl border border-slate-200 shadow-sm flex-shrink-0">
-                  <input
-                    type="checkbox"
-                    checked={settings.cleanup_abandoned_drafts}
-                    onChange={(e) => setSettings({ ...settings, cleanup_abandoned_drafts: e.target.checked })}
-                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
-                  />
-                  <span className="text-xs font-bold text-slate-800">
+                <div className="flex items-center gap-2.5 self-start md:self-center bg-white px-3.5 py-1.5 rounded-xl border border-slate-200 shadow-sm flex-shrink-0">
+                  <span className={`text-xs font-bold ${settings.cleanup_abandoned_drafts ? 'text-slate-900' : 'text-slate-400'}`}>
                     {settings.cleanup_abandoned_drafts ? 'Active' : 'Disabled'}
                   </span>
-                </label>
+                  <ToggleSwitch
+                    checked={settings.cleanup_abandoned_drafts}
+                    onChange={(val) => setSettings({ ...settings, cleanup_abandoned_drafts: val })}
+                    activeColor="bg-slate-700"
+                    ariaLabel="Toggle Tier 5 Draft Garbage Collection"
+                  />
+                </div>
               </div>
 
               {settings.cleanup_abandoned_drafts && (
@@ -1603,14 +1647,16 @@ export default function App() {
 
               {/* Activity Log Protection Configuration */}
               <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.enable_activity_log}
-                      onChange={(e) => setSettings({ ...settings, enable_activity_log: e.target.checked })}
-                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
-                    />
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5">
+                      <ToggleSwitch
+                        checked={settings.enable_activity_log}
+                        onChange={(val) => setSettings({ ...settings, enable_activity_log: val })}
+                        activeColor="bg-indigo-600"
+                        ariaLabel="Toggle Activity Audit Log"
+                      />
+                    </div>
                     <div>
                       <span className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
                         <ScrollText className="w-4 h-4 text-indigo-600" /> Enable Activity Audit Log
@@ -1619,9 +1665,9 @@ export default function App() {
                         Records background sweep runs, manual offloads, restorations, and pause/resume events.
                       </p>
                     </div>
-                  </label>
+                  </div>
 
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 flex-shrink-0">
                     Auto Disk-Bloat Protection
                   </span>
                 </div>
@@ -1847,18 +1893,23 @@ export default function App() {
               </div>
             </div>
 
-            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <ToggleSwitch
                   checked={settings.enable_font_offload}
-                  onChange={(e) => setSettings({ ...settings, enable_font_offload: e.target.checked })}
-                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
+                  onChange={(val) => setSettings({ ...settings, enable_font_offload: val })}
+                  activeColor="bg-indigo-600"
+                  ariaLabel="Toggle Serving Studio Frontend Fonts via Cloud S3 / CDN"
                 />
                 <span className="text-sm font-bold text-slate-800">
                   Serve Studio Frontend Fonts via Cloud S3 / CDN URL
                 </span>
-              </label>
+              </div>
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-full flex-shrink-0 ${
+                settings.enable_font_offload ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-200 text-slate-600'
+              }`}>
+                {settings.enable_font_offload ? 'Active' : 'Disabled'}
+              </span>
             </div>
 
             <div className="p-5 bg-gradient-to-r from-indigo-50 to-slate-50 rounded-2xl border border-indigo-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">

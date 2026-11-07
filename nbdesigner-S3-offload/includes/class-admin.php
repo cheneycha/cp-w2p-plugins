@@ -84,6 +84,7 @@ class NBD_S3_Admin {
         }
 
         wp_localize_script( ! empty( $js_file ) ? 'nbd-s3-admin-js' : 'nbd-s3-admin-fallback', 'nbdS3OffloadConfig', array(
+            'version'   => NBD_S3_VERSION,
             'restUrl'   => rest_url( NBD_S3_REST_API::NAMESPACE ),
             'nonce'     => wp_create_nonce( 'wp_rest' ),
             'pluginUrl' => NBD_S3_PLUGIN_URL,
