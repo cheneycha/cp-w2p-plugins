@@ -33,6 +33,13 @@ class NBD_S3_Client {
 
         // Normalize endpoint (strip http:// or https:// and trailing slashes)
         $this->endpoint = preg_replace( '#^https?://#i', '', rtrim( $this->endpoint, '/' ) );
+
+        // Auto-sanitize: If user provided bucket as part of endpoint (e.g. mybucket.sgp1.digitaloceanspaces.com),
+        // normalize endpoint and enforce virtual-hosted style to prevent duplicate bucket path nesting.
+        if ( ! empty( $this->bucket ) && preg_match( '#^' . preg_quote( $this->bucket, '#' ) . '\.(.+)$#i', $this->endpoint, $matches ) ) {
+            $this->endpoint       = $matches[1];
+            $this->use_path_style = false;
+        }
     }
 
     /**
