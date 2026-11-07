@@ -94,7 +94,7 @@ class NBD_S3_Client {
     /**
      * Put an object (upload file or string).
      */
-    public function put_object( string $key, string $data_or_file_path, string $content_type = '', array $custom_headers = array(), bool $is_file = false ): array|\WP_Error {
+    public function put_object( string $key, string $data_or_file_path, string $content_type = '', array $custom_headers = array(), bool $is_file = false, ?string $acl = null ): array|\WP_Error {
         $key = ltrim( $key, '/' );
 
         if ( $is_file ) {
@@ -119,7 +119,23 @@ class NBD_S3_Client {
             $custom_headers
         );
 
+        if ( ! empty( $acl ) && 'none' !== $acl ) {
+            $headers['x-amz-acl'] = $acl;
+        }
+
         return $this->send_request( 'PUT', $key, array(), $headers, $payload );
+    }
+
+    /**
+     * Set object ACL (e.g. 'public-read' or 'private') on an existing object.
+     * Useful for DigitalOcean Spaces and S3 compatible providers.
+     */
+    public function set_object_acl( string $key, string $acl = 'public-read' ): array|\WP_Error {
+        $key = ltrim( $key, '/' );
+        $headers = array(
+            'x-amz-acl' => $acl,
+        );
+        return $this->send_request( 'PUT', $key, array( 'acl' => '' ), $headers );
     }
 
     /**

@@ -163,6 +163,7 @@ export default function App() {
     cleanup_abandoned_drafts: true,
     abandoned_drafts_days: 7,
     protect_active_carts: true,
+    default_object_acl: 'public-read',
     font_cache_max_age: 2592000,
     sync_paused: true,
     sync_schedule_time: '03:00',
@@ -423,6 +424,7 @@ export default function App() {
         endpoint: preset.endpoint,
         region: preset.region,
         use_path_style: preset.use_path_style,
+        default_object_acl: p === 'aws' ? 'none' : 'public-read',
       }));
     } else {
       setSettings((prev) => ({ ...prev, provider: p }));
@@ -641,7 +643,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.0.18'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.0.19'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">
@@ -1328,6 +1330,45 @@ export default function App() {
                 }`}>
                   {settings.use_path_style ? 'Path-Style ON' : 'Virtual-Host'}
                 </span>
+              </div>
+
+              {/* Object Permissions (ACL) for DigitalOcean Spaces / S3 */}
+              <div className="md:col-span-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Object Permissions (ACL)
+                    </label>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Specifies access permissions applied when uploading files to your storage bucket.
+                    </p>
+                  </div>
+                  <select
+                    value={settings.default_object_acl || 'public-read'}
+                    onChange={(e) => setSettings({ ...settings, default_object_acl: e.target.value })}
+                    className="bg-white border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
+                  >
+                    <option value="public-read">Public Read (x-amz-acl: public-read)</option>
+                    <option value="private">Private (x-amz-acl: private)</option>
+                    <option value="none">No ACL Header (AWS Bucket-Owner Enforced)</option>
+                  </select>
+                </div>
+
+                {/* DigitalOcean Spaces guidance alert */}
+                <div className="mt-3 p-3 rounded-lg bg-indigo-50/70 border border-indigo-200/60 text-xs text-indigo-950 flex items-start gap-2.5">
+                  <span className="text-base flex-shrink-0">🌊</span>
+                  <div className="space-y-1">
+                    <p className="font-semibold text-indigo-900">
+                      DigitalOcean Spaces &amp; Object Permissions Notice:
+                    </p>
+                    <p className="text-indigo-800/90 leading-relaxed">
+                      Files uploaded to DigitalOcean Spaces are <strong>Private by default</strong>. Setting this to <strong>Public Read</strong> automatically attaches <code>x-amz-acl: public-read</code> to every upload. This ensures your <strong>Tier 4 web fonts</strong> and design previews render in visitor browsers without needing manual cURL commands or Control Panel permission toggles.
+                    </p>
+                    <p className="text-indigo-700 text-[11px]">
+                      🔑 <em>Spaces API Key Tip:</em> Ensure your DigitalOcean Spaces Key is created with <strong>Read &amp; Write</strong> (or Full Access) permissions.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
 

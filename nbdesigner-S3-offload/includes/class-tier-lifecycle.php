@@ -712,14 +712,16 @@ class NBD_S3_Tier_Lifecycle {
 
         $client   = self::get_client();
         $files    = self::get_recursive_files( $local_dir );
-        $uploaded = 0;
-        $failed   = 0;
+        $uploaded   = 0;
+        $failed     = 0;
+        $settings   = NBD_S3_Settings::get_all();
+        $object_acl = $settings['default_object_acl'] ?? 'public-read';
 
         foreach ( $files as $file_path ) {
             $rel_path = ltrim( substr( $file_path, strlen( $local_dir ) ), '/\\' );
             $s3_key   = 'designs/' . $item_key . '/' . str_replace( '\\', '/', $rel_path );
 
-            $put_res = $client->put_object( $s3_key, $file_path, '', array(), true );
+            $put_res = $client->put_object( $s3_key, $file_path, '', array(), true, $object_acl );
             if ( is_wp_error( $put_res ) ) {
                 $failed++;
             } else {
@@ -842,7 +844,9 @@ class NBD_S3_Tier_Lifecycle {
                 'Access-Control-Allow-Origin' => '*',
             );
 
-            $put_res = $client->put_object( $s3_key, $file_path, '', $headers, true );
+            // Public read ACL required for DigitalOcean Spaces / S3 font loading in customer browser
+            $font_acl = ( 'none' === ( $settings['default_object_acl'] ?? '' ) ) ? 'none' : 'public-read';
+            $put_res  = $client->put_object( $s3_key, $file_path, '', $headers, true, $font_acl );
             if ( is_wp_error( $put_res ) ) {
                 $failed++;
             } else {
