@@ -167,6 +167,20 @@ class NBD_S3_Tier_Lifecycle {
 
         $objects = $client->list_objects( $prefix, 500 );
         if ( is_wp_error( $objects ) || empty( $objects ) ) {
+            // Fallback: check if objects were offloaded under nested bucket prefix
+            $settings = NBD_S3_Settings::get_all();
+            $bucket   = (string) ( $settings['bucket'] ?? '' );
+            if ( ! empty( $bucket ) ) {
+                $nested_prefix  = $bucket . '/designs/' . $item_key . '/';
+                $nested_objects = $client->list_objects( $nested_prefix, 500 );
+                if ( ! is_wp_error( $nested_objects ) && ! empty( $nested_objects ) ) {
+                    $prefix  = $nested_prefix;
+                    $objects = $nested_objects;
+                }
+            }
+        }
+
+        if ( is_wp_error( $objects ) || empty( $objects ) ) {
             return false;
         }
 
