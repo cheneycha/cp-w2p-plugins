@@ -590,50 +590,50 @@ export default function App() {
   return (
     <div className="bg-slate-50 min-h-screen text-slate-800 p-2 sm:p-6 font-sans">
       {/* Top Hero Banner */}
-      <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white rounded-2xl p-6 sm:p-8 shadow-xl mb-6 relative overflow-hidden">
+      <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white rounded-2xl p-4 sm:p-5 shadow-xl mb-4 relative overflow-hidden">
         <div className="absolute right-0 top-0 translate-x-10 -translate-y-10 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 relative z-10">
           <div>
-            <div className="flex items-center gap-2 mb-2 flex-wrap">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-200 border border-indigo-400/20">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-300" /> Web-to-Print Tiered Storage Engine
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-white flex items-center gap-2.5">
+                <Cloud className="w-6 h-6 text-indigo-400" /> NBDesigner S3 Offload
+              </h1>
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/20 text-indigo-200 border border-indigo-400/20">
+                <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.0.7'} • PHP 8.3 & HPOS
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
+                v{window.nbdS3OffloadConfig?.version || '0.0.9'} • PHP 8.3 & HPOS
               </span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
-              <Cloud className="w-8 h-8 text-indigo-400" /> NBDesigner S3 Offload
-            </h1>
-            <p className="text-indigo-200 text-sm mt-1 max-w-2xl leading-relaxed">
-              Tiered storage lifecycle: Whitelist protected admin templates on local NVMe SSD, offload aged guest designs to S3, and dual-sync fonts with CDN acceleration.
+            <p className="text-indigo-200/80 text-xs mt-1 max-w-2xl leading-normal">
+              Tiered storage lifecycle: Whitelist protected admin templates on NVMe SSD, offload aged guest designs to S3, and dual-sync fonts.
             </p>
           </div>
 
-          <div className="flex items-center gap-3 self-start md:self-center">
+          <div className="flex items-center gap-2 self-start md:self-center flex-shrink-0">
             <button
               onClick={handleSave}
               disabled={saving}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl font-semibold shadow-lg shadow-indigo-500/30 transition disabled:opacity-50 cursor-pointer text-sm"
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl font-semibold shadow-md shadow-indigo-500/30 transition disabled:opacity-50 cursor-pointer text-xs sm:text-sm"
             >
-              {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
               {saving ? 'Saving...' : 'Save Settings'}
             </button>
           </div>
         </div>
 
         {/* Live Operational Status & Master Pause/Resume Bar */}
-        <div className="mt-6 pt-5 border-t border-indigo-700/50 grid grid-cols-1 md:grid-cols-3 gap-3 relative z-10">
+        <div className="mt-3.5 pt-3 border-t border-indigo-700/50 grid grid-cols-1 md:grid-cols-3 gap-2.5 relative z-10">
           {/* Card 1: Bucket Connection Status */}
-          <div className="bg-indigo-950/60 backdrop-blur-sm border border-indigo-500/30 rounded-xl p-3.5 flex items-center justify-between">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+          <div className="bg-indigo-950/60 backdrop-blur-sm border border-indigo-500/30 rounded-xl p-2.5 sm:px-3 flex items-center justify-between">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
                 bucketConnection.connected ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-400/30' : 'bg-rose-500/20 text-rose-400 border border-rose-400/30'
               }`}>
-                {bucketConnection.connected ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
+                {bucketConnection.connected ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
               </div>
               <div className="min-w-0">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-indigo-300">S3 Bucket</div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-300">S3 Bucket</div>
                 <div className="text-xs font-semibold text-white truncate">
                   {bucketConnection.connected ? (
                     <span className="text-emerald-300 flex items-center gap-1">
@@ -653,22 +653,22 @@ export default function App() {
               onClick={() => fetchConnectionStatus(true)}
               disabled={checkingConnection}
               title="Test connection to bucket"
-              className="p-1.5 hover:bg-indigo-800/60 text-indigo-200 hover:text-white rounded-lg transition cursor-pointer"
+              className="p-1 hover:bg-indigo-800/60 text-indigo-200 hover:text-white rounded-lg transition cursor-pointer"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${checkingConnection ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3 h-3 ${checkingConnection ? 'animate-spin' : ''}`} />
             </button>
           </div>
 
           {/* Card 2: Sync Running Indicator */}
-          <div className="bg-indigo-950/60 backdrop-blur-sm border border-indigo-500/30 rounded-xl p-3.5 flex items-center justify-between">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+          <div className="bg-indigo-950/60 backdrop-blur-sm border border-indigo-500/30 rounded-xl p-2.5 sm:px-3 flex items-center justify-between">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
                 syncStatus.is_running ? 'bg-indigo-500/30 text-indigo-300 animate-pulse border border-indigo-400/40' : 'bg-slate-700/40 text-slate-400 border border-slate-600/30'
               }`}>
-                {syncStatus.is_running ? <RefreshCw className="w-4 h-4 animate-spin text-indigo-300" /> : <Activity className="w-4 h-4" />}
+                {syncStatus.is_running ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-300" /> : <Activity className="w-3.5 h-3.5" />}
               </div>
               <div className="min-w-0">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-indigo-300">Sync Activity</div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-300">Sync Activity</div>
                 <div className="text-xs font-semibold text-white truncate">
                   {syncStatus.is_running ? (
                     <span className="text-indigo-300 font-bold flex items-center gap-1.5">
@@ -689,28 +689,28 @@ export default function App() {
             <button
               onClick={fetchStats}
               title="Refresh sync status"
-              className="p-1.5 hover:bg-indigo-800/60 text-indigo-200 hover:text-white rounded-lg transition cursor-pointer"
+              className="p-1 hover:bg-indigo-800/60 text-indigo-200 hover:text-white rounded-lg transition cursor-pointer"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
             </button>
           </div>
 
           {/* Card 3: Master Pause / Resume Kill-Switch */}
-          <div className={`backdrop-blur-sm border rounded-xl p-3.5 flex items-center justify-between transition ${
+          <div className={`backdrop-blur-sm border rounded-xl p-2.5 sm:px-3 flex items-center justify-between transition ${
             syncStatus.is_paused
               ? 'bg-amber-950/40 border-amber-500/40'
               : 'bg-emerald-950/40 border-emerald-500/40'
           }`}>
-            <div className="flex items-center gap-3 min-w-0">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
                 syncStatus.is_paused
                   ? 'bg-amber-500/20 text-amber-300 border border-amber-400/30'
                   : 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
               }`}>
-                {syncStatus.is_paused ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                {syncStatus.is_paused ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
               </div>
               <div className="min-w-0">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-indigo-200">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-200">
                   {syncStatus.is_paused ? 'Safe Mode Active' : 'Auto Sync State'}
                 </div>
                 <div className="text-xs font-bold text-white truncate">
@@ -723,20 +723,20 @@ export default function App() {
               type="button"
               onClick={handleTogglePause}
               disabled={togglingPause}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm ${
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm ${
                 syncStatus.is_paused
                   ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
                   : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
               }`}
             >
               {togglingPause ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                <RefreshCw className="w-3 h-3 animate-spin" />
               ) : syncStatus.is_paused ? (
-                <Play className="w-3.5 h-3.5 fill-current" />
+                <Play className="w-3 h-3 fill-current" />
               ) : (
-                <Pause className="w-3.5 h-3.5 fill-current" />
+                <Pause className="w-3 h-3 fill-current" />
               )}
-              {syncStatus.is_paused ? 'Resume Sync' : 'Pause Sync'}
+              {syncStatus.is_paused ? 'Resume' : 'Pause'}
             </button>
           </div>
         </div>
@@ -744,7 +744,7 @@ export default function App() {
         {/* Global Toast Notice */}
         {notice && (
           <div
-            className={`mt-4 p-4 rounded-xl border text-sm flex items-center justify-between shadow-sm animate-fade-in ${
+            className={`mt-3 p-3 rounded-xl border text-xs sm:text-sm flex items-center justify-between shadow-sm animate-fade-in ${
               notice.type === 'success'
                 ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-200'
                 : notice.type === 'warning'
@@ -752,19 +752,19 @@ export default function App() {
                 : 'bg-rose-950/80 border-rose-500/50 text-rose-200'
             }`}
           >
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2">
               {notice.type === 'success' ? (
-                <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
               ) : notice.type === 'warning' ? (
-                <Pause className="w-5 h-5 text-amber-400 flex-shrink-0" />
+                <Pause className="w-4 h-4 text-amber-400 flex-shrink-0" />
               ) : (
-                <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0" />
+                <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
               )}
               <span className="font-medium">{notice.message}</span>
             </div>
             <button
               onClick={() => setNotice(null)}
-              className="text-slate-400 hover:text-white text-xs font-bold px-2 py-1"
+              className="text-slate-400 hover:text-white text-xs font-bold px-2 py-0.5"
             >
               ✕
             </button>
@@ -772,41 +772,41 @@ export default function App() {
         )}
 
         {/* Nav Tabs Bar */}
-        <div className="flex flex-wrap gap-2 mt-6 pt-4 border-t border-indigo-700/40">
+        <div className="flex flex-wrap gap-1.5 mt-3.5 pt-2.5 border-t border-indigo-700/40">
           <button
             onClick={() => {
               setActiveTab('explorer');
               fetchExplorerFolders();
             }}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
               activeTab === 'explorer'
-                ? 'bg-white text-indigo-900 shadow-md'
+                ? 'bg-white text-indigo-900 shadow-sm'
                 : 'text-indigo-200 hover:bg-indigo-800/50 hover:text-white'
             }`}
           >
-            <Folder className="w-4 h-4" /> 🧪 Trial Sandbox & Explorer
+            <Folder className="w-3.5 h-3.5" /> 🧪 Trial Sandbox & Explorer
           </button>
 
           <button
             onClick={() => setActiveTab('connection')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
               activeTab === 'connection'
-                ? 'bg-white text-indigo-900 shadow-md'
+                ? 'bg-white text-indigo-900 shadow-sm'
                 : 'text-indigo-200 hover:bg-indigo-800/50 hover:text-white'
             }`}
           >
-            <Cloud className="w-4 h-4" /> Cloud S3 & CDN
+            <Cloud className="w-3.5 h-3.5" /> Cloud S3 & CDN
           </button>
 
           <button
             onClick={() => setActiveTab('lifecycle')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
               activeTab === 'lifecycle'
-                ? 'bg-white text-indigo-900 shadow-md'
+                ? 'bg-white text-indigo-900 shadow-sm'
                 : 'text-indigo-200 hover:bg-indigo-800/50 hover:text-white'
             }`}
           >
-            <Layers className="w-4 h-4" /> Tiered Storage Policy
+            <Layers className="w-3.5 h-3.5" /> Tiered Storage Policy
           </button>
 
           <button
@@ -814,13 +814,13 @@ export default function App() {
               setActiveTab('logs');
               fetchLogs();
             }}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
               activeTab === 'logs'
-                ? 'bg-white text-indigo-900 shadow-md'
+                ? 'bg-white text-indigo-900 shadow-sm'
                 : 'text-indigo-200 hover:bg-indigo-800/50 hover:text-white'
             }`}
           >
-            <ScrollText className="w-4 h-4" /> Activity Log
+            <ScrollText className="w-3.5 h-3.5" /> Activity Log
             {logs.length > 0 && (
               <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-indigo-500 text-white">
                 {logs.length}
@@ -830,13 +830,13 @@ export default function App() {
 
           <button
             onClick={() => setActiveTab('fonts')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
               activeTab === 'fonts'
-                ? 'bg-white text-indigo-900 shadow-md'
+                ? 'bg-white text-indigo-900 shadow-sm'
                 : 'text-indigo-200 hover:bg-indigo-800/50 hover:text-white'
             }`}
           >
-            <Type className="w-4 h-4" /> Font Dual-Sync
+            <Type className="w-3.5 h-3.5" /> Font Dual-Sync
           </button>
 
           <button
@@ -844,13 +844,13 @@ export default function App() {
               setActiveTab('stats');
               fetchStats();
             }}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition cursor-pointer ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
               activeTab === 'stats'
-                ? 'bg-white text-indigo-900 shadow-md'
+                ? 'bg-white text-indigo-900 shadow-sm'
                 : 'text-indigo-200 hover:bg-indigo-800/50 hover:text-white'
             }`}
           >
-            <BarChart3 className="w-4 h-4" /> Storage Stats & Sweeps
+            <BarChart3 className="w-3.5 h-3.5" /> Storage Stats & Sweeps
           </button>
         </div>
       </div>

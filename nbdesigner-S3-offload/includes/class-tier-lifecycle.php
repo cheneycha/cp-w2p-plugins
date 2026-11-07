@@ -193,8 +193,57 @@ class NBD_S3_Tier_Lifecycle {
         }
 
         delete_transient( 'nbd_s3_explorer_dirs_v2' );
+        self::record_folder_restored( $item_key );
+
+        if ( is_dir( $local_dir ) && file_exists( $local_dir . '/.s3_offloaded' ) ) {
+            @unlink( $local_dir . '/.s3_offloaded' );
+        }
+
+        global $wpdb;
+        $order_meta_table = $wpdb->prefix . 'woocommerce_order_itemmeta';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$order_meta_table}'" ) === $order_meta_table ) {
+            $order_item_ids = $wpdb->get_col( $wpdb->prepare(
+                "SELECT DISTINCT order_item_id FROM {$order_meta_table} 
+                 WHERE (meta_key = '_nbd' OR meta_key = '_nbd_item_key') AND meta_value = %s",
+                $item_key
+            ) );
+            if ( ! empty( $order_item_ids ) ) {
+                foreach ( $order_item_ids as $oi_id ) {
+                    wc_delete_order_item_meta( $oi_id, '_nbd_s3_offloaded' );
+                    wc_delete_order_item_meta( $oi_id, '_nbd_s3_offloaded_time' );
+                }
+            }
+        }
+
         NBD_S3_Logger::log( 'RESTORE', sprintf( 'Restored folder %s from S3 to local SSD.', $item_key ), array( 'folder' => $item_key ), 'success' );
         return true;
+    }
+
+    /**
+     * Get offloaded folders registry.
+     */
+    public static function get_offloaded_registry(): array {
+        return (array) get_option( 'nbd_s3_offloaded_registry', array() );
+    }
+
+    /**
+     * Record a folder as offloaded in the registry.
+     */
+    public static function record_folder_offloaded( string $folder ): void {
+        $registry = self::get_offloaded_registry();
+        $registry[ $folder ] = time();
+        update_option( 'nbd_s3_offloaded_registry', $registry, 'no' );
+    }
+
+    /**
+     * Remove a folder from offloaded registry upon restoration.
+     */
+    public static function record_folder_restored( string $folder ): void {
+        $registry = self::get_offloaded_registry();
+        if ( isset( $registry[ $folder ] ) ) {
+            unset( $registry[ $folder ] );
+            update_option( 'nbd_s3_offloaded_registry', $registry, 'no' );
+        }
     }
 
     /**
@@ -329,6 +378,8 @@ class NBD_S3_Tier_Lifecycle {
             }
         }
 
+        $registry_lookup = self::get_offloaded_registry();
+
         $settings  = NBD_S3_Settings::get_all();
         $retention = (int) ( $settings['cold_retention_days'] ?? 14 );
         $cutoff    = time() - ( $retention * DAY_IN_SECONDS );
@@ -340,7 +391,7 @@ class NBD_S3_Tier_Lifecycle {
             $mtime        = $d['mtime'];
             $is_tpl       = isset( $template_lookup[ $folder ] );
             $is_aged      = ( $mtime < $cutoff );
-            $is_offloaded = isset( $offloaded_lookup[ $folder ] );
+            $is_offloaded = isset( $offloaded_lookup[ $folder ] ) || isset( $registry_lookup[ $folder ] );
 
             // Search filter
             if ( '' !== $search && false === stripos( $folder, $search ) ) {
@@ -395,8 +446,13 @@ class NBD_S3_Tier_Lifecycle {
             }
 
             $is_offloaded = $item['is_offloaded'];
+            if ( ! $is_offloaded && is_dir( $local_dir ) && file_exists( $local_dir . '/.s3_offloaded' ) ) {
+                $is_offloaded = true;
+                self::record_folder_offloaded( $folder );
+            }
             if ( ! $is_offloaded && ! $has_heavy && is_dir( $local_dir ) && ( file_exists( $local_dir . '/product.json' ) || file_exists( $local_dir . '/design.json' ) ) && $count > 0 && $count <= 3 ) {
                 $is_offloaded = true;
+                self::record_folder_offloaded( $folder );
             }
 
             $mtime = $item['mtime'];
@@ -559,6 +615,8 @@ class NBD_S3_Tier_Lifecycle {
             return array( 'success' => false, 'message' => 'Local directory not found' );
         }
 
+        $original_mtime = (int) @filemtime( $local_dir );
+
         $client   = self::get_client();
         $files    = self::get_recursive_files( $local_dir );
         $uploaded = 0;
@@ -577,6 +635,8 @@ class NBD_S3_Tier_Lifecycle {
         }
 
         if ( $failed > 0 || 0 === $uploaded ) {
+            $err_msg = sprintf( 'Failed to offload %d files to S3 for %s (%d uploaded).', $failed, $item_key, $uploaded );
+            NBD_S3_Logger::log( 'OFFLOAD_ERROR', $err_msg, array( 'folder' => $item_key, 'failed' => $failed, 'uploaded' => $uploaded ), 'error' );
             return array(
                 'success'  => false,
                 'message'  => sprintf( 'Failed to offload %d files to S3', $failed ),
@@ -587,6 +647,7 @@ class NBD_S3_Tier_Lifecycle {
         // Verification step: verify files exist on S3 before deleting local copy
         $head_res = $client->head_object( 'designs/' . $item_key . '/' . ( file_exists( $local_dir . '/product.json' ) ? 'product.json' : 'design.json' ) );
         if ( is_wp_error( $head_res ) ) {
+            NBD_S3_Logger::log( 'OFFLOAD_ERROR', sprintf( 'Integrity verification failed on S3 for %s.', $item_key ), array( 'folder' => $item_key ), 'error' );
             return array( 'success' => false, 'message' => 'Integrity verification failed on S3' );
         }
 
@@ -599,9 +660,40 @@ class NBD_S3_Tier_Lifecycle {
         } else {
             // Smart purge: delete heavy print files, retain small metadata JSONs
             self::smart_purge_directory( $local_dir );
+            // Mark folder as offloaded to S3 locally
+            @file_put_contents( $local_dir . '/.s3_offloaded', wp_json_encode( array(
+                'time'  => time(),
+                'mode'  => $purge_mode,
+                'files' => $uploaded,
+            ) ) );
+            // Preserve original directory modification time so folder age does not reset to 0
+            if ( $original_mtime > 0 ) {
+                @touch( $local_dir, $original_mtime );
+            }
         }
 
-        // Record order item metadata if order_id is provided
+        // Record offload in persistent registry
+        self::record_folder_offloaded( $item_key );
+
+        // Record order item metadata across all linked orders
+        global $wpdb;
+        $order_meta_table = $wpdb->prefix . 'woocommerce_order_itemmeta';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$order_meta_table}'" ) === $order_meta_table ) {
+            $order_item_ids = $wpdb->get_col( $wpdb->prepare(
+                "SELECT DISTINCT order_item_id FROM {$order_meta_table} 
+                 WHERE (meta_key = '_nbd' OR meta_key = '_nbd_item_key') AND meta_value = %s",
+                $item_key
+            ) );
+            if ( ! empty( $order_item_ids ) ) {
+                foreach ( $order_item_ids as $oi_id ) {
+                    wc_update_order_item_meta( $oi_id, '_nbd_s3_offloaded', 1 );
+                    wc_update_order_item_meta( $oi_id, '_nbd_s3_offloaded_time', time() );
+                    wc_update_order_item_meta( $oi_id, '_nbd_s3_purge_mode', $purge_mode );
+                }
+            }
+        }
+
+        // Also record order item metadata if order_id is provided directly
         if ( $order_id > 0 ) {
             $order = wc_get_order( $order_id );
             if ( $order ) {
@@ -618,6 +710,7 @@ class NBD_S3_Tier_Lifecycle {
         }
 
         delete_transient( 'nbd_s3_explorer_dirs_v2' );
+        NBD_S3_Logger::log( 'OFFLOAD', sprintf( 'Offloaded %s (%d files) to S3.', $item_key, $uploaded ), array( 'folder' => $item_key, 'files' => $uploaded, 'purge_mode' => $purge_mode ), 'success' );
 
         return array(
             'success'  => true,
@@ -775,7 +868,7 @@ class NBD_S3_Tier_Lifecycle {
         }
 
         foreach ( $files as $value ) {
-            if ( '.' === $value || '..' === $value ) {
+            if ( '.' === $value || '..' === $value || '.' === $value[0] ) {
                 continue;
             }
             $path = $dir . '/' . $value;
