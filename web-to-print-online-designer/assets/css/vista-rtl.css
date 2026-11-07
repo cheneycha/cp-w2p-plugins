@@ -1,0 +1,138 @@
+.nbd-mode-vista canvas{
+    direction: ltr;
+}
+
+.nbd-rtl.nbd-mode-vista .ps__scrollbar-x-rail { display: none !important; }
+.nbd-rtl.nbd-mode-vista .nbd-stages .ps__scrollbar-x-rail { display: block !important; }
+
+.nbd-rtl.nbd-mode-vista .v-workspace .v-layout .v-toolbox .v-toolbox-text .v-btn.btn-font-size i {
+     margin-left: 0;
+     margin-right: 30px;
+ }
+
+.nbd-rtl.nbd-mode-vista .v-workspace .v-layout .v-toolbox .v-toolbox-text .v-btn.btn-color i {
+     margin-left: 0;
+     margin-right: 10px;
+ }
+
+.nbd-rtl.nbd-mode-vista .v-workspace .v-layout .v-toolbox .v-toolbox-text .footer-box .items .item.item-reset {
+     border-left: 1px solid #ebebeb;
+     border-right: none;
+ }
+.nbd-rtl.nbd-mode-vista .v-workspace .v-layout .v-toolbox .v-toolbox-image .toolbox-first .toolbox-directional {
+     margin: -28px 20px 0 0;
+ }
+.nbd-rtl.nbd-mode-vista .v-workspace .v-layout .v-toolbox .v-toolbox-image .toolbox-first .toolbox-general .items .item {
+     margin-right: 0;
+     margin-left: 10px;
+ }
+.nbd-rtl.nbd-mode-vista .v-workspace .v-layout .v-toolbox .v-assets {
+     flex-direction: row-reverse;
+ }
+.nbd-rtl.nbd-mode-vista .nbd-text-color-picker {
+     left: 20px;
+ }
+.nbd-rtl.nbd-mode-vista .nbd-text-color-picker .v-btn {
+     margin-right: 10px;
+     margin-left: 0;
+ }
+.nbd-rtl.nbd-mode-vista .v-workspace .v-sidebar .v-content .v-elements .result-loaded .content-items div[data-type=image-upload] .nbd-term .term-read {
+     margin-right: 10px;
+ }
+.nbd-rtl.nbd-mode-vista .v-workspace .v-sidebar .v-content .v-elements .result-loaded .content-items div[data-type=image-url] .form-group .input-group button {
+     border-radius: 3px 0 0 3px;
+ }
+.nbd-rtl.nbd-mode-vista .v-workspace .v-sidebar .v-content .v-elements .result-loaded .content-items div[data-type=image-upload] .allow-size span {
+     text-align: right;
+ }
+.nbd-rtl.nbd-mode-vista .v-workspace .v-sidebar .v-content .v-elements .result-loaded .content-items div[data-type=image-upload] .allow-size {
+     margin-right: 10px;
+ }
+.nbd-rtl.nbd-mode-vista .v-main-menu .v-menu-item {
+     flex-direction: row-reverse;
+ }
+.nbd-rtl.nbd-mode-vista .nbd-toasts .toast {
+     padding: 10px 20px 10px 45px;
+ }
+.nbd-rtl.nbd-mode-vista .nbd-toasts .toast i {
+     left: 10px;
+     right: auto;
+ }
+
+.nbd-mode-vista .v-layout {
+    margin-right: 30px;
+    margin-left: 0;
+}
+.nbd-mode-vista.nbd-mobile .v-layout {
+    margin: 0;
+}
+
+.nbd-rtl.nbd-mode-vista .v-sidebar .v-content .v-elements .result-loaded .content-items div[data-type="image-url"] .form-group .input-group input {
+    border-radius: 2px;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+}
+.nbd-rtl.nbd-mode-vista .v-sidebar .v-content .v-elements .result-loaded .content-items div[data-type="image-url"] .form-group label {
+    text-align: right;
+}
+.nbd-rtl.nbd-mode-vista .nbd-stages .stages-inner .stage {
+    padding: 40px 40px 40px 50px;
+    direction: ltr;
+}
+.nbd-mode-vista .nbd-stages .page-toolbar {
+    left: -40px;
+    right: auto;
+}
+
+.nbd-rtl.nbd-mode-vista .nbd-toolbar-zoom {
+    left: 30px;
+    right: auto;
+}
+
+.nbd-mode-vista .v-toolbox .has-box-more .link-breadcrumb {
+    margin-left: 0;
+    margin-right: auto;
+}
+
+.nbd-mode-vista .v-toolbox .has-box-more .link-breadcrumb .link-item {
+    margin-right: 5px;
+    margin-left: 0;
+}
+.nbd-mode-vista .v-sidebar .v-content .v-elements .result-loaded .content-items div[data-type="image-upload"] .form-upload i {
+    margin-left: 15px;
+    margin-right: 0;
+}
+.nbd-mode-vista .v-sidebar .v-content .v-elements .result-loaded .content-items div[data-type="instagram"] .v-btn i {
+    margin-left: 10px;
+    margin-right: 0;
+}
+.dropbox-dropin-btn .dropin-btn-status {
+    margin: 0 2px 0 5px;
+}
+.nbd-mode-vista .v-sidebar .nbd-search i {
+    left: 15px;
+    right: auto;
+}
+.nbd-mode-vista .v-sidebar .nbd-search input {
+    padding: 5px 10px 5px 35px;
+}
+
+.nbd-mode-vista.nbd-mobile .v-toolbar .main-toolbar .v-toolbar-item {
+    margin: auto;
+}
+.nbd-mode-vista.nbd-mobile .v-toolbar .main-toolbar .right-toolbar ul li:first-child {
+    border-left: 1px solid #04b591;
+    border-right: none;
+}
+
+.nbd-mode-vista.nbd-mobile .nbd-stages .page-toolbar {
+    left: 50%;
+}
+.nbd-mode-vista .v-ranges .range label {
+    padding-right: 0;
+    padding-left: 10px;
+}
+.nbd-mode-vista .v-ranges .range .value-display {
+    padding-left: 0;
+    padding-right: 10px;
+}

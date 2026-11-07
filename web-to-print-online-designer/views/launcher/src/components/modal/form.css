@@ -1,0 +1,72 @@
+.modal_content {
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+.header {
+    background: #fcfcfc;
+    padding: 0 1em;
+    border-bottom: 1px solid #ddd;
+    height: 50px;
+    box-sizing: border-box;
+    position: relative;
+    font-weight: bold;
+    font-size: 1.5em;
+    line-height: 50px;
+}
+
+.close {
+    cursor: pointer;
+    color: #777;
+    height: 50px;
+    width: 50px;
+    padding: 0;
+    position: absolute;
+    top: 0;
+    right: 0;
+    text-align: center;
+    border: 0;
+    border-left: 1px solid #ddd;
+    background-color: transparent;
+    transition: color .1s ease-in-out,background .1s ease-in-out;
+
+    &:before {
+        font: normal 22px/50px dashicons!important;
+        color: #666;
+        display: block;
+        content: "\F335";
+        font-weight: 300;
+    }
+}
+
+.body {
+    height: calc(100% - 100px);
+    overflow-y: scroll;
+    padding: 1.5em;
+    box-sizing: border-box;
+}
+
+.footer {
+    background: #fcfcfc;
+    display: flex;
+    border-top: 1px solid #ddd;
+    height: 50px;
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0 1.5em;
+}
+
+.form_row {
+    margin-bottom: 10px;
+
+    label {
+        display: block;
+        padding-bottom: 3px;
+    }
+
+    input, textarea {
+        width: 100%;
+    }
+}

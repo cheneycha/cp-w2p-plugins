@@ -1,0 +1,89 @@
+#nbdq-add-field {
+    margin: 20px 0;
+    padding: 20px;
+    background-color: #ebebeb;
+    display: inline-block;
+    border: 1px solid #e0e0e0;
+}
+#nbdq-add-field h4 {
+    margin: 0 0 10px;
+    text-transform: uppercase;
+}
+#nbdq-add-field label {
+    display: block;
+    margin-bottom: 10px;
+}
+#nbdq-add-field input[type="text"] {
+    width: 300px;
+}
+#nbdq_form_fields_form {
+    margin-bottom: 30px;
+}
+#nbdq_form_fields_form button[type="submit"].button-primary {
+    margin-top: 30px;
+}
+#nbdq_form_fields .td_field_action {
+    text-align: center;
+}
+#nbdq_form_fields tr.disabled-row td:not( .td_field_action ) {
+    opacity: 0.3;
+}
+#nbdq_form_fields tr.disabled-row .td_field_action .edit_field {
+    display: none;
+}
+#nbdq_form_fields tr:not( .is_custom ) .td_field_action .remove_field {
+    display: none;
+}
+#nbdq-add-field input.required,
+#nbdq-add-field input.field-exists {
+    border: 1px solid rgba( 253, 76, 76, 1 );
+    -webkit-box-shadow: 2px 1px 10px 1px rgba( 253, 76, 76, 0.5 );
+    -moz-box-shadow: 2px 1px 10px 1px rgba( 253, 76, 76, 0.5 );
+    box-shadow: 2px 1px 10px 1px rgba( 253, 76, 76, 0.5 );
+}
+div#nbdq_field_add_edit_form input[type="text"], div#nbdq_field_add_edit_form select {
+    width: 100%;
+    padding: 5px 5px;
+}
+
+.nbdq-form-link{
+    margin-left: 240px;
+
+}
+#nbdq_field_add_edit_form td.label{
+    width: 100px;
+}
+#nbdq_field_add_edit_form td{
+    padding: 5px;
+}
+#nbdq_field_add_edit_form .ui-dialog-titlebar.ui-widget-header.ui-corner-all.ui-helper-clearfix.ui-draggable-handle {
+    border-radius: 0;
+    border: 0;
+}
+#nbdq_field_add_edit_form textarea {
+    width: 100%;
+}
+#nbdq_field_add_edit_form small {
+    color: #72777c;
+    font-style: italic;
+}
+#nbdq_field_add_edit_form button.ui-button.ui-widget.ui-state-default.ui-corner-all.ui-button-icon-only.ui-dialog-titlebar-close {
+    margin-top: 6px;
+}
+
+#nbdq_field_add_edit_form select, #nbdq_field_add_edit_form input[type="text"] {
+    background: none;
+    box-shadow: none;
+}
+
+#nbdq_form_fields td.ui-sortable-handle:before{
+    content: '\f333';
+    font-family: Dashicons;
+    text-align: center;
+    line-height: 1;
+    color: #999;
+    display: block;
+    width: 17px;
+    height: 100%;
+    margin: 4px 0 0 0;
+}

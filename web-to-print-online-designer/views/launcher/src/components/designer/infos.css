@@ -1,0 +1,40 @@
+.contact-infos {
+    margin-top: 20px;
+    display: flex;
+    justify-content: space-between;
+}
+
+.contact-infos-column {
+    width: calc(50% - 10px);
+    background-color: #fff;
+    box-sizing: border-box;
+}
+
+.contact-infos-column-inner {
+    padding: 10px 20px;
+}
+
+.contact-info {
+    margin: 15px 0;
+
+    input[type="text"], select, textarea {
+        width: 100%;
+        margin-top: 5px;
+        max-width: unset;
+    }
+
+    input[type="number"]{
+        margin-top: 5px;
+    }
+}
+
+.header {
+    font-weight: bold;
+    padding: 10px;
+    border-bottom: 1px solid #f1f1f1;
+    padding-left: 12px;
+}
+
+.commission-combine {
+    width: 100px !important;
+}

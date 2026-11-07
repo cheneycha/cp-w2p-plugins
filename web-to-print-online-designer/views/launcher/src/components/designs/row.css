@@ -1,0 +1,47 @@
+.status {
+    display: inline-flex;
+    line-height: 2.5em;
+    border-radius: 4px;
+    border-bottom: 1px solid rgba(0,0,0,.05);
+    margin: -.25em 0.25em 0 0 !important;
+    padding: 0 1em;
+    cursor: inherit!important;
+    white-space: nowrap;
+    max-width: 100%;
+    margin: 0 1em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.approved,
+.solid {
+    background: #c8d7e1;
+    color: #2e4453;
+}
+.pending, .editable {
+    background: #c6e1c6;
+    color: #5b841b;
+}
+.cancelled {
+    color: #777;
+    background: #e5e5e5;
+}
+.design_preview {
+    width: 80px !important;
+    display: inline-block;
+}
+
+.actions {
+    width: 50px !important;
+    padding: 0 !important;
+}
+
+.column_designer,
+.column_status {
+    width: 100px !important;
+}
+
+@media screen and (max-width: 782px) {
+    .column_status {
+        float: right;
+    }
+}

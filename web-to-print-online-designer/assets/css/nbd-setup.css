@@ -1,0 +1,193 @@
+body {
+    margin: 65px auto 24px;
+    box-shadow: none;
+    background: #f1f1f1;
+    padding: 0;
+}
+.nbd-setup {
+    text-align: center;
+}
+.nbd-return-to-dashboard {
+    font-size: .85em;
+    color: #b5b5b5;
+    margin: 1.18em auto;
+    display: inline-block;
+    text-align: center;    
+}
+#nbd-logo {
+    border: 0;
+    margin: 0 0 24px;
+    padding: 0;
+    text-align: center;
+}
+#nbd-logo img {
+    width: 100px;
+}
+.nbd-setup-steps {
+    padding: 0 0 24px;
+    margin: 0;
+    list-style: none outside;
+    overflow: hidden;
+    color: #ccc;
+    width: 100%;
+    display: -webkit-inline-box;
+    display: -webkit-inline-flex;
+    display: -ms-inline-flexbox;
+    display: inline-flex;
+}
+.nbd-setup-steps li {
+    width: 100%;
+    float: left;
+    padding: 0 0 .8em;
+    margin: 0;
+    text-align: center;
+    position: relative;
+    border-bottom: 4px solid #ccc;
+    line-height: 1.4em;
+}
+.nbd-setup-steps li.active {
+    border-color: #404762;
+    color: #404762;
+}
+.nbd-setup-steps li::before {
+    content: '';
+    border: 4px solid #ccc;
+    border-radius: 100%;
+    width: 4px;
+    height: 4px;
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    margin-left: -6px;
+    margin-bottom: -8px;
+    background: #fff;
+}
+.nbd-setup-steps li.active::before {
+    border-color: #404762;
+}
+.nbd-setup-content {
+    box-shadow: 0 1px 3px rgba(0,0,0,.13);
+    padding: 2em;
+    margin: 0 0 20px;
+    background: #fff;
+    overflow: hidden;
+    zoom: 1;
+    text-align: left;
+}
+.nbd-setup-content h1, .nbd-setup-content h2, .nbd-setup-content h3, .nbd-setup-content table {
+    margin: 0 0 20px;
+    border: 0;
+    padding: 0;
+    color: #666;
+    clear: none;
+    font-weight: 500;
+}
+select{
+    padding: 5px 5px 5px 10px;
+    background: #fff url(../images/select-arrows.png) no-repeat 100% 50%;
+    border: 1px solid #ccc;
+    padding-right: 2em;
+    -webkit-appearance: button;
+    -moz-appearance: button;
+    -ms-appearance: button;
+    height: 36px;
+    cursor: pointer;
+    line-height: 20px;  
+    width: 100%;
+    border-radius: 4px;
+}
+select:focus {
+    outline: none;
+}
+.nbd-setup .nbd-setup-actions {
+    overflow: hidden;
+    margin: 20px 0 0;
+}
+.nbd-setup-content p:last-child {
+    margin-bottom: 0;
+}
+.nbd-setup .nbd-setup-actions .button {
+    font-weight: 300;
+    font-size: 16px;
+    padding: 1em 2em;
+    box-shadow: none;
+    min-width: 12em;
+    min-width: auto;
+    margin-top: 10px;  
+    height: auto;
+    line-height: 1em;
+    border-radius: 4px;
+}
+.nbd-setup .nbd-setup-actions .button-primary {
+    background-color: #404762;
+    border-color: #404762;
+    margin: 0;
+    opacity: 1;
+    text-shadow: none;
+}
+.step {
+    text-align: center;
+    padding: 0;
+}
+.nbd-setup .nbd-setup-actions .button:hover {
+    background-color: #5b6484;
+    border-color: #5b6484;
+}
+input.full-width {
+    border: 1px solid #aaa;
+    border-color: #ddd;
+    border-radius: 4px;
+    height: 30px;
+    width: calc(100% - 8px - 24px - 2px);
+    padding-left: 8px;
+    padding-right: 24px;
+    font-size: 16px;
+    color: #444;
+    background-color: #fff;
+    display: inline-block;    
+}
+.get-license-container {
+    display: -webkit-box;
+    display: -webkit-flex;
+    display: -ms-flexbox;
+    display: flex;
+}
+.get-license-container div {
+    -webkit-flex-basis: 50%;
+    -ms-flex-preferred-size: 50%;
+    flex-basis: 50%;
+    margin-right: 1em;
+}
+.get-license-container input {
+    border: 1px solid #aaa;
+    border-color: #ddd;
+    border-radius: 4px;
+    height: 30px;
+    width: calc(100% - 8px - 24px - 2px);
+    padding-left: 8px;
+    padding-right: 24px;
+    font-size: 16px;
+    color: #444;
+    background-color: #fff;
+    display: inline-block;
+}
+.submit_key{
+    margin-top: 20px;
+    color: #fff;
+    background: #404762;
+    height: 34px;
+    line-height: 34px;
+    display: inline-block;
+    padding: 0 8px;
+    border-radius: 4px;
+    cursor: pointer;    
+}
+.submit_key:hover {
+    background-color: #5b6484;
+    color: #fff;
+}
+.enable-design {
+    border: 7px solid #fff;
+    border-radius: 4px;
+    box-shadow: 0 3px 10px 0 rgba(75,79,84,.3);
+}

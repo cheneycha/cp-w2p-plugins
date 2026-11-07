@@ -1,0 +1,9 @@
+.wrap {
+    margin-right: 20px;
+
+    :global .pagination-links {
+        :global .button, :global .paging-input {
+            margin: 0 2px;
+        }
+    }
+}

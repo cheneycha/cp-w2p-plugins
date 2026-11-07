@@ -1,0 +1,146 @@
+.wrap {
+    margin-top: 20px;
+    background: #fff;
+    border: 1px solid #d9e4e7;
+    border-radius: 3px;
+    padding: 20px;
+    display: flex;
+    justify-content: space-between;
+}
+
+.stat_summary {
+    width: 32%;
+
+    h3 {
+        margin-top: 0;
+    }
+
+    ul {
+        border: 1px solid #dfdfdf;
+
+        li {
+            margin-bottom: 10px;
+            border-top: 1px solid #dfdfdf;
+            position: relative;
+            padding: 15px 10px 5px 75px;
+
+            &:before {
+                position: absolute;
+                width: 41px;
+                height: 41px;
+                border-radius: 50%;
+                left: 20px;
+                top: 18px;
+                content: " ";
+                background-color: #007cba !important;
+            }
+
+            &:after {
+                display: inline-block;
+                width: 22px;
+                height: 22px;
+                font-size: 22px;
+                line-height: 1;
+                font-family: dashicons;
+                text-decoration: inherit;
+                font-weight: 400;
+                font-style: normal;
+                vertical-align: top;
+                text-align: center;
+                transition: color .1s ease-in 0;
+                -webkit-font-smoothing: antialiased;
+                -moz-osx-font-smoothing: grayscale;
+                left: 29px;
+                top: 26px;
+                color: #fff;
+                position: absolute;
+            }
+
+            &:first-child {
+                border-top: none;
+            }
+
+            &.total_designs:before {
+                background-color: #fb094c;
+            }
+
+            &.total_designs:after {
+                content: "\f161";
+            }
+
+            &.publish_designs:before {
+                background-color: #fd553b;
+            }
+
+            &.publish_designs:after {
+                content: "\f233";
+            }
+
+            &.designs_sold:before {
+                background-color: #323abf;
+            }
+
+            &.designs_sold:after {
+                content: "\f174";
+            }
+
+            &.total_earning:before {
+                background-color: #0f72f9;
+            }
+
+            &.total_earning:after {
+                content: "\F524";
+            }
+
+            &.current_balance:before {
+                background-color: #2cc55e;
+            }
+
+            &.current_balance:after {
+                content: "\F239";
+            }
+
+            &.registered_since:before {
+                background-color: #8740a7;
+            }
+
+            &.registered_since:after {
+                content: "\F338";
+            }
+
+            &.designer_commission:before {
+                background-color: #633fe4;
+            }
+
+            &.designer_commission:after {
+                content: "\F184";
+            }
+        }
+    }
+}
+
+.count {
+    font-size: 1.5em;
+    line-height: 130%;
+}
+
+.subhead {
+    color: #999;
+    display: block;
+    margin-top: 3px;
+}
+
+.loading {
+    position: relative;
+    height: 200px;
+    width: 100%;
+
+    img {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 40px;
+        height: 40px;
+        transform: translate(-20px, -20px);
+    }
+}

@@ -1,0 +1,14 @@
+.loading {
+    position: relative;
+    height: 200px;
+    width: 100%;
+
+    img {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 40px;
+        height: 40px;
+        transform: translate(-20px, -20px);
+    }
+}

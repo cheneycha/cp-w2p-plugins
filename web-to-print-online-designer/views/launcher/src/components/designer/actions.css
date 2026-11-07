@@ -1,0 +1,8 @@
+.acctions-wrap {
+    text-align: right;
+    margin-top: 20px;
+
+    :global .cancel {
+        margin-right: 15px;
+    }
+}

@@ -1,0 +1,17 @@
+.time_range, .chart {
+    margin-top: 15px;
+}
+
+.active {
+    font-weight: bold;
+    color: black;
+}
+
+.range {
+    text-decoration: none;
+
+    &:focus, &:active {
+        outline: none;
+        box-shadow: none;
+    }
+}

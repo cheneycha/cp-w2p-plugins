@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+:root {
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+}
+
+#nbd-s3-offload-root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+  color: #1e293b;
+  max-width: 1200px;
+  margin: 16px 20px 40px 0;
+  box-sizing: border-box;
+}
+
+#nbd-s3-offload-root * {
+  box-sizing: border-box;
+}
+
+/* Custom scrollbars and transition effects */
+.transition-all-fast {
+  transition: all 0.15s ease-in-out;
+}

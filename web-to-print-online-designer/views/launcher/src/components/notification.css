@@ -1,0 +1,46 @@
+.notifications {
+    position: fixed;
+    bottom: 0;
+    right: 0;
+    z-index: 5000;
+    width: 300px;
+    display: block;
+}
+
+.notification-wrapper {
+    display: block;
+    overflow: hidden;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    animation: blur 2s forwards;
+}
+
+.notification {
+    font-size: 12px;
+    padding: 10px;
+    margin: 0 5px 5px;
+    color: #fff;  
+    background: #44a4fc;
+    border-left: 5px solid #187fe7;
+
+    &.success {
+        background: #0073aa;
+        border-left-color: #074867;
+    }
+
+    &.failure {
+        background: #dc3232;
+        border-left-color: #c20d0d;
+    }
+}
+
+.notification-title {
+    font-weight: bold;
+}
+
+@keyframes blur {
+    0% {opacity: 1;}
+    50% {opacity: 1;}
+    100% {opacity: 0;}
+}

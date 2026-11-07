@@ -1,0 +1,52 @@
+.boxes {
+    display: flex;
+    flex-wrap: wrap;
+}
+
+.box {
+    min-height: 50px;
+    width: 50%;
+    padding: 0;
+    box-sizing: border-box;
+    margin: 0;
+    color: #aaa;
+    display: flex;
+    border-bottom: 1px solid #ececec;
+
+    &:nth-child(2n+1) {
+        border-right: 1px solid #ececec;
+    }
+}
+
+.box_icon {
+    margin: 15px;
+    font-size: 25px;
+    color: #0073aa;
+
+    &.awaiting {
+        color: #464646;
+    }
+}
+
+.info {
+    flex-grow: 2;
+    padding: 10px 10px 10px 0;
+}
+
+.value {
+    font-size: 18px;
+    color: #0073aa;
+    line-height: 1.2em;
+}
+
+.detail {
+    :global .up {
+        color: #6da754;
+        font-weight: bold;
+    }
+
+    :global .down {
+        color: #cd2c2f;
+        font-weight: bold;
+    }
+}

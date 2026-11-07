@@ -1,0 +1,33 @@
+.avatar {
+    float: left;
+    margin-right: 10px;
+    margin-top: 1px;
+    width: 24px;
+    height: auto;
+}
+.status {
+    display: inline-flex;
+    line-height: 2.5em;
+    border-radius: 4px;
+    border-bottom: 1px solid rgba(0,0,0,.05);
+    margin: -.25em 0 !important;
+    padding: 0 1em;
+    cursor: inherit!important;
+    white-space: nowrap;
+    max-width: 100%;
+    margin: 0 1em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.approved {
+    background: #c8d7e1;
+    color: #2e4453;
+}
+.pending {
+    background: #c6e1c6;
+    color: #5b841b;
+}
+.cancelled {
+    color: #777;
+    background: #e5e5e5;
+}

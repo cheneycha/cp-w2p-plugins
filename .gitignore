@@ -1,0 +1,16 @@
+# 1. Ignore everything in the plugins directory
+/*
+
+# 2. Allow Git to track the .gitignore file itself
+!.gitignore
+
+# 3. Whitelist specific plugin folders
+!/nbdesigner-S3-offload/
+!/web-to-print-online-designer/
+
+# 4. Standard local exclusions inside the whitelisted plugins
+**/node_modules/
+**/vendor/
+**/.DS_Store
+**.zip
+
