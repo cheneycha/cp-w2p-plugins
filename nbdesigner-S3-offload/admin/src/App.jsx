@@ -641,7 +641,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.0.17'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.0.18'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">
@@ -957,10 +957,10 @@ export default function App() {
                     {[
                       { key: 'all', label: 'All Folders' },
                       { key: 'templates', label: 'Tier 1 Templates' },
-                      { key: 'active', label: 'Tier 2 Active (< 14d)' },
+                      { key: 'active', label: `Tier 2 Active (< ${settings.cold_retention_days || 14}d)` },
                       { key: 'offloaded', label: 'Tier 3 Offloaded' },
-                      { key: 'aged', label: 'Tier 3 Candidates (> 14d)' },
-                      { key: 'drafts', label: 'Tier 5 Drafts (> 7d)' },
+                      { key: 'aged', label: `Tier 3 Candidates (> ${settings.cold_retention_days || 14}d)` },
+                      { key: 'drafts', label: `Tier 5 Drafts (> ${settings.abandoned_drafts_days || 7}d)` },
                     ].map((f) => (
                       <button
                         key={f.key}
@@ -1102,13 +1102,17 @@ export default function App() {
                                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
                                       <Archive className="w-3 h-3 text-indigo-600" /> Tier 3 S3 Offloaded
                                     </span>
-                                  ) : f.is_in_cart ? (
+                                  ) : f.is_in_cart && settings.protect_active_carts ? (
                                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-50 text-sky-700 border border-sky-200" title="Item is currently held in an active cart and shielded from Tier 5 purge">
                                       <ShoppingCart className="w-3 h-3 text-sky-600" /> In Active Cart (Shielded)
                                     </span>
                                   ) : f.is_draft && f.age_days >= (settings.abandoned_drafts_days || 7) ? (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-300">
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-300" title={f.is_in_cart ? "Held in cart but Active Cart Shield is OFF. Older than retention window and scheduled for Tier 5 purge." : "Unclaimed guest draft older than retention threshold"}>
                                       <Trash2 className="w-3 h-3 text-slate-500" /> Tier 5 Abandoned Draft
+                                    </span>
+                                  ) : f.is_in_cart ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200" title="Item is held in a cart, but Active Cart Shield is turned off. Within retention window, but will be purged when age exceeds threshold.">
+                                      <ShoppingCart className="w-3 h-3 text-amber-600" /> In Active Cart (Unshielded)
                                     </span>
                                   ) : f.is_aged ? (
                                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
