@@ -35,6 +35,7 @@ import {
   Flame,
   Archive,
   ExternalLink,
+  ShoppingCart,
 } from 'lucide-react';
 
 const PRESETS = {
@@ -130,6 +131,7 @@ export default function App() {
     purge_mode: 'smart',
     cleanup_abandoned_drafts: true,
     abandoned_drafts_days: 7,
+    protect_active_carts: true,
     font_cache_max_age: 2592000,
     sync_paused: true,
     sync_schedule_time: '03:00',
@@ -598,7 +600,7 @@ export default function App() {
               <div className="flex items-center gap-2.5">
                 <Cloud className="w-6 h-6 text-indigo-400 flex-shrink-0" />
                 <span
-                  className="text-xl sm:text-2xl font-extrabold tracking-tight text-white drop-shadow-xs"
+                  className="text-xl sm:text-2xl font-extrabold tracking-tight !text-white drop-shadow-xs"
                   style={{ color: '#ffffff' }}
                 >
                   NBDesigner S3 Offload
@@ -608,7 +610,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.0.15'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.0.16'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">
@@ -1069,7 +1071,11 @@ export default function App() {
                                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
                                       <Archive className="w-3 h-3 text-indigo-600" /> Tier 3 S3 Offloaded
                                     </span>
-                                  ) : f.is_draft && f.age_days >= 7 ? (
+                                  ) : f.is_in_cart ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-50 text-sky-700 border border-sky-200" title="Item is currently held in an active cart and shielded from Tier 5 purge">
+                                      <ShoppingCart className="w-3 h-3 text-sky-600" /> In Active Cart (Shielded)
+                                    </span>
+                                  ) : f.is_draft && f.age_days >= (settings.abandoned_drafts_days || 7) ? (
                                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-300">
                                       <Trash2 className="w-3 h-3 text-slate-500" /> Tier 5 Abandoned Draft
                                     </span>
@@ -1658,27 +1664,59 @@ export default function App() {
               </div>
 
               {settings.cleanup_abandoned_drafts && (
-                <div className="border-t border-slate-200 pt-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                      Draft Retention Window
-                    </label>
-                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-800">
-                      {settings.abandoned_drafts_days} Days
-                    </span>
+                <div className="border-t border-slate-200 pt-3 space-y-4">
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                        Draft Retention Window
+                      </label>
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-800">
+                        {settings.abandoned_drafts_days} Days
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="1"
+                      max="180"
+                      value={settings.abandoned_drafts_days}
+                      onChange={(e) => setSettings({ ...settings, abandoned_drafts_days: parseInt(e.target.value, 10) })}
+                      className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-600"
+                    />
+                    <div className="flex justify-between text-xs text-slate-400 mt-1">
+                      <span>1 day</span>
+                      <span>7 days (Default)</span>
+                      <span>30 days</span>
+                      <span>90 days</span>
+                      <span>180 days (Max)</span>
+                    </div>
                   </div>
-                  <input
-                    type="range"
-                    min="1"
-                    max="30"
-                    value={settings.abandoned_drafts_days}
-                    onChange={(e) => setSettings({ ...settings, abandoned_drafts_days: parseInt(e.target.value, 10) })}
-                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-600"
-                  />
-                  <div className="flex justify-between text-xs text-slate-400 mt-1">
-                    <span>1 day</span>
-                    <span>7 days (Recommended)</span>
-                    <span>30 days</span>
+
+                  <div className="border-t border-slate-200/80 pt-3 flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-2.5">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-800">
+                            Active Cart Protection Shield
+                          </span>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            Recommended
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                          Prevents Tier 5 garbage collection from deleting designs that are currently held in any active guest or logged-in user cart, even if older than {settings.abandoned_drafts_days} days.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <ToggleSwitch
+                        checked={settings.protect_active_carts}
+                        onChange={(val) => setSettings({ ...settings, protect_active_carts: val })}
+                        activeColor="bg-emerald-600"
+                        size="sm"
+                        ariaLabel="Toggle Active Cart Protection Shield"
+                      />
+                    </div>
                   </div>
                 </div>
               )}

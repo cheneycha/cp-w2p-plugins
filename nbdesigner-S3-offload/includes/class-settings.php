@@ -34,6 +34,7 @@ class NBD_S3_Settings {
             'purge_mode'                 => 'smart', // 'smart' (deletes heavy PDFs/PNGs, keeps JSON) or 'full'
             'cleanup_abandoned_drafts'   => true,
             'abandoned_drafts_days'      => 7,
+            'protect_active_carts'       => true, // Active Cart Protection Shield: immune to purge if in active cart
             'font_cache_max_age'         => 2592000, // 30 days
             // Safety & Sync Master Controls:
             'sync_paused'                => true, // Master Kill-Switch: Paused by default on activation
@@ -127,7 +128,8 @@ class NBD_S3_Settings {
             'cold_retention_days'        => max( 1, absint( $data['cold_retention_days'] ?? $current['cold_retention_days'] ) ),
             'purge_mode'                 => in_array( $data['purge_mode'] ?? '', array( 'smart', 'full' ), true ) ? $data['purge_mode'] : 'smart',
             'cleanup_abandoned_drafts'   => ! empty( $data['cleanup_abandoned_drafts'] ),
-            'abandoned_drafts_days'      => max( 1, absint( $data['abandoned_drafts_days'] ?? $current['abandoned_drafts_days'] ) ),
+            'abandoned_drafts_days'      => max( 1, min( 180, absint( $data['abandoned_drafts_days'] ?? $current['abandoned_drafts_days'] ) ) ),
+            'protect_active_carts'       => ! empty( $data['protect_active_carts'] ),
             'font_cache_max_age'         => max( 3600, absint( $data['font_cache_max_age'] ?? $current['font_cache_max_age'] ) ),
             'sync_paused'                => ! empty( $data['sync_paused'] ),
             'sync_schedule_time'         => sanitize_text_field( $data['sync_schedule_time'] ?? $current['sync_schedule_time'] ?? '03:00' ),

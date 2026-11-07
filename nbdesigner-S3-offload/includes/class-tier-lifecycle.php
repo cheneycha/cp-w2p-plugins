@@ -474,6 +474,9 @@ class NBD_S3_Tier_Lifecycle {
                 continue;
             }
             if ( 'drafts' === $filter ) {
+                if ( ! empty( $settings['protect_active_carts'] ) && self::is_in_active_cart( $folder ) ) {
+                    continue;
+                }
                 if ( $is_tpl || $mtime >= $draft_cutoff || isset( $all_order_folders[ $folder ] ) || isset( $all_saved_folders[ $folder ] ) ) {
                     continue;
                 }
@@ -525,7 +528,8 @@ class NBD_S3_Tier_Lifecycle {
             $mtime = $item['mtime'];
 
             // Fast draft check for the 25 paged items
-            $is_draft = false;
+            $is_draft   = false;
+            $is_in_cart = false;
             if ( ! $item['is_template'] && ! $is_offloaded ) {
                 if ( 'drafts' === $filter ) {
                     $is_draft = true;
@@ -539,6 +543,9 @@ class NBD_S3_Tier_Lifecycle {
                         }
                     }
                 }
+                if ( $is_draft ) {
+                    $is_in_cart = self::is_in_active_cart( $folder );
+                }
             }
 
             $folders[] = array(
@@ -547,6 +554,7 @@ class NBD_S3_Tier_Lifecycle {
                 'is_aged'        => $item['is_aged'],
                 'is_offloaded'   => $is_offloaded,
                 'is_draft'       => $is_draft,
+                'is_in_cart'     => $is_in_cart,
                 'files_count'    => $count,
                 'size_bytes'     => $bytes,
                 'size_formatted' => size_format( $bytes ),
@@ -856,6 +864,43 @@ class NBD_S3_Tier_Lifecycle {
     }
 
     /**
+     * Check if a design folder is currently held in any active guest session or registered user cart.
+     */
+    public static function is_in_active_cart( string $folder ): bool {
+        global $wpdb;
+
+        if ( empty( $folder ) ) {
+            return false;
+        }
+
+        $folder_like = '%' . $wpdb->esc_like( $folder ) . '%';
+
+        // 1. Check registered users' persistent carts in usermeta
+        $in_user_cart = $wpdb->get_var( $wpdb->prepare(
+            "SELECT umeta_id FROM {$wpdb->usermeta} WHERE meta_key LIKE '_woocommerce_persistent_cart_%' AND meta_value LIKE %s LIMIT 1",
+            $folder_like
+        ) );
+        if ( ! empty( $in_user_cart ) ) {
+            return true;
+        }
+
+        // 2. Check active WooCommerce sessions (guests & active shoppers)
+        $table_sessions = $wpdb->prefix . 'woocommerce_sessions';
+        if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table_sessions ) ) === $table_sessions ) {
+            $in_session = $wpdb->get_var( $wpdb->prepare(
+                "SELECT session_id FROM {$table_sessions} WHERE session_expiry > %d AND session_value LIKE %s LIMIT 1",
+                time(),
+                $folder_like
+            ) );
+            if ( ! empty( $in_session ) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Daily cleanup for abandoned guest draft folders older than threshold.
      */
     public static function run_draft_cleanup(): void {
@@ -901,6 +946,11 @@ class NBD_S3_Tier_Lifecycle {
             // Check if attached to order item
             $order_item = $wpdb->get_var( $wpdb->prepare( "SELECT order_item_id FROM {$wpdb->prefix}woocommerce_order_itemmeta WHERE (meta_key = '_nbd' OR meta_key = '_nbd_item_key') AND meta_value = %s LIMIT 1", $folder ) );
             if ( $order_item ) {
+                continue;
+            }
+
+            // Active Cart Protection Shield: Protect if design is inside any live cart
+            if ( ! empty( $settings['protect_active_carts'] ) && self::is_in_active_cart( $folder ) ) {
                 continue;
             }
 
