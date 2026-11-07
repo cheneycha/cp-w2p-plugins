@@ -225,8 +225,24 @@ class NBD_S3_REST_API {
             }
         }
 
-        // Count offloaded order items
-        $offloaded_orders_count = (int) $wpdb->get_var( "SELECT COUNT(DISTINCT order_item_id) FROM {$wpdb->prefix}woocommerce_order_itemmeta WHERE meta_key = '_nbd_s3_offloaded' AND meta_value = '1'" );
+        // Count offloaded design folders (from persistent offload registry + WooCommerce order item meta)
+        $registry_folders = array_keys( NBD_S3_Tier_Lifecycle::get_offloaded_registry() );
+
+        $order_meta_table = $wpdb->prefix . 'woocommerce_order_itemmeta';
+        $order_offloaded_folders = array();
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$order_meta_table}'" ) === $order_meta_table ) {
+            $order_offloaded_folders = $wpdb->get_col(
+                "SELECT DISTINCT m1.meta_value 
+                 FROM {$order_meta_table} m1 
+                 INNER JOIN {$order_meta_table} m2 ON m1.order_item_id = m2.order_item_id 
+                 WHERE (m1.meta_key = '_nbd' OR m1.meta_key = '_nbd_item_key') 
+                   AND m2.meta_key = '_nbd_s3_offloaded' 
+                   AND m2.meta_value = '1'"
+            );
+        }
+
+        $all_offloaded_folders  = array_unique( array_merge( $registry_folders, (array) $order_offloaded_folders ) );
+        $offloaded_orders_count = count( $all_offloaded_folders );
 
         // Count templates
         $templates_table = $wpdb->prefix . 'nbdesigner_templates';
@@ -242,6 +258,7 @@ class NBD_S3_REST_API {
                 'local_fonts_count'      => $local_fonts_count,
                 'local_fonts_size'       => size_format( $local_fonts_bytes ),
                 'offloaded_orders_count' => $offloaded_orders_count,
+                'offloaded_count'        => $offloaded_orders_count,
                 'templates_count'        => $templates_count,
             ),
             'sync_status'       => NBD_S3_Tier_Lifecycle::get_sync_status(),
