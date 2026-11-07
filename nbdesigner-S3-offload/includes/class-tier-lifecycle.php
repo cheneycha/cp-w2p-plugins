@@ -184,6 +184,7 @@ class NBD_S3_Tier_Lifecycle {
             }
         }
 
+        delete_transient( 'nbd_s3_explorer_dirs_v2' );
         return true;
     }
 
@@ -233,6 +234,7 @@ class NBD_S3_Tier_Lifecycle {
             }
         }
 
+        delete_transient( 'nbd_s3_explorer_dirs_v2' );
         return array(
             'total'         => count( $folders ),
             'restored'      => $restored,
@@ -243,76 +245,156 @@ class NBD_S3_Tier_Lifecycle {
     /**
      * Get design folders for admin sandbox explorer.
      */
-    public static function get_design_folders_explorer( int $limit = 20, int $offset = 0, string $filter = 'all' ): array {
+    public static function get_design_folders_explorer( int $limit = 20, int $offset = 0, string $filter = 'all', bool $force_refresh = false, string $search = '' ): array {
         global $wpdb;
         $base_dir = defined( 'NBDESIGNER_CUSTOMER_DIR' ) ? NBDESIGNER_CUSTOMER_DIR : ( WP_CONTENT_DIR . '/uploads/nbdesigner/designs' );
         if ( ! is_dir( $base_dir ) ) {
             return array( 'total' => 0, 'folders' => array() );
         }
 
-        $dirs = glob( rtrim( $base_dir, '/' ) . '/*', GLOB_ONLYDIR );
-        if ( empty( $dirs ) ) {
+        $cache_key   = 'nbd_s3_explorer_dirs_v2';
+        $cached_dirs = $force_refresh ? false : get_transient( $cache_key );
+
+        if ( false === $cached_dirs ) {
+            $cached_dirs = array();
+            try {
+                $iterator = new \DirectoryIterator( $base_dir );
+                foreach ( $iterator as $item ) {
+                    if ( $item->isDot() || ! $item->isDir() ) {
+                        continue;
+                    }
+                    $cached_dirs[] = array(
+                        'folder' => $item->getFilename(),
+                        'mtime'  => $item->getMTime(),
+                    );
+                }
+            } catch ( \Throwable $e ) {
+                $dirs = glob( rtrim( $base_dir, '/' ) . '/*', GLOB_ONLYDIR );
+                if ( ! empty( $dirs ) ) {
+                    foreach ( $dirs as $d ) {
+                        $cached_dirs[] = array(
+                            'folder' => basename( $d ),
+                            'mtime'  => (int) @filemtime( $d ),
+                        );
+                    }
+                }
+            }
+
+            // Sort by mtime descending (newest first)
+            usort( $cached_dirs, function( $a, $b ) {
+                return $b['mtime'] <=> $a['mtime'];
+            } );
+
+            set_transient( $cache_key, $cached_dirs, 300 ); // 5 minutes cache
+        }
+
+        if ( empty( $cached_dirs ) ) {
             return array( 'total' => 0, 'folders' => array() );
         }
 
-        // Sort by filemtime descending
-        usort( $dirs, function( $a, $b ) {
-            return filemtime( $b ) <=> filemtime( $a );
-        } );
+        // Single batch query: whitelisted admin templates
+        $template_table  = $wpdb->prefix . 'nbdesigner_templates';
+        $template_lookup = array();
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$template_table}'" ) === $template_table ) {
+            $tpl_col = $wpdb->get_col( "SELECT DISTINCT folder FROM {$template_table} WHERE folder IS NOT NULL AND folder != ''" );
+            if ( ! empty( $tpl_col ) ) {
+                $template_lookup = array_flip( $tpl_col );
+            }
+        }
+
+        // Single batch query: offloaded WooCommerce order items
+        $order_meta_table = $wpdb->prefix . 'woocommerce_order_itemmeta';
+        $offloaded_lookup = array();
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$order_meta_table}'" ) === $order_meta_table ) {
+            $off_col = $wpdb->get_col(
+                "SELECT DISTINCT m1.meta_value 
+                 FROM {$order_meta_table} m1 
+                 INNER JOIN {$order_meta_table} m2 ON m1.order_item_id = m2.order_item_id 
+                 WHERE (m1.meta_key = '_nbd' OR m1.meta_key = '_nbd_item_key') 
+                   AND m2.meta_key = '_nbd_s3_offloaded' 
+                   AND m2.meta_value = '1'"
+            );
+            if ( ! empty( $off_col ) ) {
+                $offloaded_lookup = array_flip( $off_col );
+            }
+        }
 
         $settings  = NBD_S3_Settings::get_all();
         $retention = (int) ( $settings['cold_retention_days'] ?? 14 );
         $cutoff    = time() - ( $retention * DAY_IN_SECONDS );
 
-        $all_items = array();
+        $matched_items = array();
 
-        foreach ( $dirs as $d ) {
-            $folder  = basename( $d );
-            $mtime   = filemtime( $d );
-            $is_tpl  = self::is_admin_template( $folder );
-            $is_aged = ( $mtime < $cutoff );
+        foreach ( $cached_dirs as $d ) {
+            $folder       = $d['folder'];
+            $mtime        = $d['mtime'];
+            $is_tpl       = isset( $template_lookup[ $folder ] );
+            $is_aged      = ( $mtime < $cutoff );
+            $is_offloaded = isset( $offloaded_lookup[ $folder ] );
 
-            // Check files inside folder
-            $files     = self::get_recursive_files( $d );
-            $count     = count( $files );
+            // Search filter
+            if ( '' !== $search && false === stripos( $folder, $search ) ) {
+                continue;
+            }
+
+            // Category filter
+            if ( 'templates' === $filter && ! $is_tpl ) {
+                continue;
+            }
+            if ( 'aged' === $filter && ( ! $is_aged || $is_tpl ) ) {
+                continue;
+            }
+            if ( 'offloaded' === $filter && ! $is_offloaded ) {
+                continue;
+            }
+            if ( 'local' === $filter && $is_offloaded ) {
+                continue;
+            }
+
+            $matched_items[] = array(
+                'folder'       => $folder,
+                'mtime'        => $mtime,
+                'is_template'  => $is_tpl,
+                'is_aged'      => $is_aged,
+                'is_offloaded' => $is_offloaded,
+            );
+        }
+
+        $total = count( $matched_items );
+        $slice = array_slice( $matched_items, $offset, $limit );
+
+        // Deep inspection only for the paged subset (max 20-30 items)
+        $folders = array();
+        foreach ( $slice as $item ) {
+            $folder    = $item['folder'];
+            $local_dir = rtrim( $base_dir, '/' ) . '/' . $folder;
+            $count     = 0;
             $bytes     = 0;
             $has_heavy = false;
-            foreach ( $files as $f ) {
-                $sz = (int) filesize( $f );
-                $bytes += $sz;
-                $ext = strtolower( pathinfo( $f, PATHINFO_EXTENSION ) );
-                if ( in_array( $ext, array( 'pdf', 'png', 'jpg', 'jpeg', 'tif', 'tiff' ), true ) ) {
-                    $has_heavy = true;
+
+            if ( is_dir( $local_dir ) ) {
+                $files = self::get_recursive_files( $local_dir );
+                $count = count( $files );
+                foreach ( $files as $f ) {
+                    $bytes += (int) @filesize( $f );
+                    $ext    = strtolower( pathinfo( $f, PATHINFO_EXTENSION ) );
+                    if ( in_array( $ext, array( 'pdf', 'png', 'jpg', 'jpeg', 'tif', 'tiff' ), true ) ) {
+                        $has_heavy = true;
+                    }
                 }
             }
 
-            // Check if offloaded
-            $is_offloaded = false;
-            if ( ! $has_heavy && ( file_exists( $d . '/product.json' ) || file_exists( $d . '/design.json' ) ) && $count > 0 && $count <= 3 ) {
+            $is_offloaded = $item['is_offloaded'];
+            if ( ! $is_offloaded && ! $has_heavy && is_dir( $local_dir ) && ( file_exists( $local_dir . '/product.json' ) || file_exists( $local_dir . '/design.json' ) ) && $count > 0 && $count <= 3 ) {
                 $is_offloaded = true;
-            } else {
-                $offloaded_meta = $wpdb->get_var( $wpdb->prepare(
-                    "SELECT m2.meta_value FROM {$wpdb->prefix}woocommerce_order_itemmeta m1
-                     INNER JOIN {$wpdb->prefix}woocommerce_order_itemmeta m2 ON m1.order_item_id = m2.order_item_id
-                     WHERE (m1.meta_key = '_nbd' OR m1.meta_key = '_nbd_item_key') AND m1.meta_value = %s
-                     AND m2.meta_key = '_nbd_s3_offloaded' LIMIT 1",
-                    $folder
-                ) );
-                if ( ! empty( $offloaded_meta ) ) {
-                    $is_offloaded = true;
-                }
             }
 
-            // Filter check
-            if ( 'templates' === $filter && ! $is_tpl ) continue;
-            if ( 'aged' === $filter && ( ! $is_aged || $is_tpl ) ) continue;
-            if ( 'offloaded' === $filter && ! $is_offloaded ) continue;
-            if ( 'local' === $filter && $is_offloaded ) continue;
+            $mtime = $item['mtime'];
 
-            $all_items[] = array(
+            $folders[] = array(
                 'folder'         => $folder,
-                'is_template'    => $is_tpl,
-                'is_aged'        => $is_aged,
+                'is_template'    => $item['is_template'],
+                'is_aged'        => $item['is_aged'],
                 'is_offloaded'   => $is_offloaded,
                 'files_count'    => $count,
                 'size_bytes'     => $bytes,
@@ -323,12 +405,9 @@ class NBD_S3_Tier_Lifecycle {
             );
         }
 
-        $total = count( $all_items );
-        $slice = array_slice( $all_items, $offset, $limit );
-
         return array(
             'total'   => $total,
-            'folders' => $slice,
+            'folders' => $folders,
         );
     }
 
@@ -506,6 +585,8 @@ class NBD_S3_Tier_Lifecycle {
                 }
             }
         }
+
+        delete_transient( 'nbd_s3_explorer_dirs_v2' );
 
         return array(
             'success'  => true,

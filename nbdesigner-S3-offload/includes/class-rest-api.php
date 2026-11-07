@@ -233,11 +233,13 @@ class NBD_S3_REST_API {
      * GET /explorer/folders
      */
     public static function get_explorer_folders( \WP_REST_Request $request ): \WP_REST_Response {
-        $limit  = (int) ( $request->get_param( 'limit' ) ?: 20 );
-        $offset = (int) ( $request->get_param( 'offset' ) ?: 0 );
-        $filter = (string) ( $request->get_param( 'filter' ) ?: 'all' );
+        $limit   = (int) ( $request->get_param( 'limit' ) ?: 20 );
+        $offset  = (int) ( $request->get_param( 'offset' ) ?: 0 );
+        $filter  = sanitize_text_field( $request->get_param( 'filter' ) ?: 'all' );
+        $refresh = (bool) $request->get_param( 'refresh' );
+        $search  = sanitize_text_field( $request->get_param( 'search' ) ?: '' );
 
-        $data = NBD_S3_Tier_Lifecycle::get_design_folders_explorer( $limit, $offset, $filter );
+        $data = NBD_S3_Tier_Lifecycle::get_design_folders_explorer( $limit, $offset, $filter, $refresh, $search );
         return new \WP_REST_Response( array(
             'success' => true,
             'total'   => $data['total'],

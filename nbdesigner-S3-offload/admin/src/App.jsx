@@ -20,6 +20,8 @@ import {
   Eye,
   Check,
   Zap,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 const PRESETS = {
@@ -97,6 +99,10 @@ export default function App() {
   const [foldersTotal, setFoldersTotal] = useState(0);
   const [explorerFilter, setExplorerFilter] = useState('all');
   const [explorerLoading, setExplorerLoading] = useState(false);
+  const [explorerError, setExplorerError] = useState(null);
+  const [explorerSearch, setExplorerSearch] = useState('');
+  const [explorerPage, setExplorerPage] = useState(0);
+  const PAGE_SIZE = 25;
   const [operatingFolder, setOperatingFolder] = useState(null);
   const [batchCount, setBatchCount] = useState(3);
   const [batchRunning, setBatchRunning] = useState(false);
@@ -114,7 +120,7 @@ export default function App() {
   useEffect(() => {
     fetchSettings();
     fetchStats();
-    fetchExplorerFolders('all');
+    fetchExplorerFolders('all', false, 0, '');
   }, []);
 
   const showNotice = (type, message) => {
@@ -151,18 +157,33 @@ export default function App() {
     }
   };
 
-  const fetchExplorerFolders = async (filter = explorerFilter) => {
+  const fetchExplorerFolders = async (
+    filter = explorerFilter,
+    forceRefresh = false,
+    page = explorerPage,
+    search = explorerSearch
+  ) => {
     setExplorerLoading(true);
+    setExplorerError(null);
     try {
-      const res = await fetch(`${config.restUrl}/explorer/folders?limit=30&filter=${filter}`, {
-        headers: getHeaders(),
-      });
+      const offset = page * PAGE_SIZE;
+      const searchParam = search.trim() ? `&search=${encodeURIComponent(search.trim())}` : '';
+      const refreshParam = forceRefresh ? '&refresh=1' : '';
+      const res = await fetch(
+        `${config.restUrl}/explorer/folders?limit=${PAGE_SIZE}&offset=${offset}&filter=${filter}${searchParam}${refreshParam}`,
+        { headers: getHeaders() }
+      );
       if (res.ok) {
         const data = await res.json();
         setFolders(data.folders || []);
         setFoldersTotal(data.total || 0);
+      } else {
+        const errText = await res.text();
+        setExplorerError(`Scan request failed (HTTP ${res.status}). Click Refresh to retry.`);
+        console.error('Failed to load folders:', res.status, errText);
       }
     } catch (err) {
+      setExplorerError('Network error or server timeout while scanning folders.');
       console.error('Failed to load folders:', err);
     } finally {
       setExplorerLoading(false);
@@ -319,7 +340,7 @@ export default function App() {
       if (res.ok && data.success) {
         showNotice('success', data.message);
         fetchStats();
-        fetchExplorerFolders();
+        fetchExplorerFolders(explorerFilter, true, explorerPage, explorerSearch);
       } else {
         showNotice('error', data.message || 'Batch test failed.');
       }
@@ -342,7 +363,7 @@ export default function App() {
       if (res.ok && data.success) {
         showNotice('success', `Folder "${folder}" successfully offloaded to S3 and local heavy files purged.`);
         fetchStats();
-        fetchExplorerFolders();
+        fetchExplorerFolders(explorerFilter, true, explorerPage, explorerSearch);
       } else {
         showNotice('error', data.message || 'Failed to offload folder.');
       }
@@ -365,7 +386,7 @@ export default function App() {
       if (res.ok && data.success) {
         showNotice('success', `Folder "${folder}" downloaded from S3 and restored back to local NVMe SSD!`);
         fetchStats();
-        fetchExplorerFolders();
+        fetchExplorerFolders(explorerFilter, true, explorerPage, explorerSearch);
       } else {
         showNotice('error', data.message || 'Failed to restore folder.');
       }
@@ -554,10 +575,11 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Filter and Folder Explorer Table */}
+              {/* Filter and Folder Explorer Controls */}
               <div className="mt-6">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
-                  <div className="flex items-center gap-2">
+                <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-4">
+                  {/* Filters */}
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
                       Filter:
                     </span>
@@ -571,7 +593,8 @@ export default function App() {
                         key={f.key}
                         onClick={() => {
                           setExplorerFilter(f.key);
-                          fetchExplorerFolders(f.key);
+                          setExplorerPage(0);
+                          fetchExplorerFolders(f.key, false, 0, explorerSearch);
                         }}
                         className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
                           explorerFilter === f.key
@@ -584,16 +607,75 @@ export default function App() {
                     ))}
                   </div>
 
-                  <div className="flex items-center gap-2 text-xs text-slate-500">
-                    <span>Showing {folders.length} of {foldersTotal} folders</span>
-                    <button
-                      onClick={() => fetchExplorerFolders()}
-                      disabled={explorerLoading}
-                      className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition cursor-pointer"
-                      title="Refresh"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${explorerLoading ? 'animate-spin' : ''}`} />
-                    </button>
+                  {/* Search and Pagination Controls */}
+                  <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto justify-between lg:justify-end">
+                    {/* Search box */}
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search folder ID..."
+                        value={explorerSearch}
+                        onChange={(e) => setExplorerSearch(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            setExplorerPage(0);
+                            fetchExplorerFolders(explorerFilter, false, 0, e.target.value);
+                          }
+                        }}
+                        className="pl-8 pr-3 py-1 bg-slate-100 hover:bg-slate-200/70 focus:bg-white focus:ring-2 focus:ring-indigo-500 rounded-lg text-xs text-slate-800 placeholder-slate-400 transition outline-none w-40 sm:w-48"
+                      />
+                    </div>
+
+                    {/* Pagination & Count */}
+                    <div className="flex items-center gap-2 text-xs text-slate-500">
+                      <span>
+                        {foldersTotal > 0
+                          ? `Showing ${explorerPage * PAGE_SIZE + 1}–${Math.min((explorerPage + 1) * PAGE_SIZE, foldersTotal)} of ${foldersTotal}`
+                          : 'Showing 0 folders'}
+                      </span>
+
+                      <div className="flex items-center gap-1 border-l border-slate-200 pl-2">
+                        <button
+                          onClick={() => {
+                            const newPage = Math.max(0, explorerPage - 1);
+                            setExplorerPage(newPage);
+                            fetchExplorerFolders(explorerFilter, false, newPage, explorerSearch);
+                          }}
+                          disabled={explorerPage === 0 || explorerLoading}
+                          className="p-1 hover:bg-slate-100 disabled:opacity-30 rounded text-slate-600 transition cursor-pointer disabled:cursor-not-allowed"
+                          title="Previous Page"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <span className="text-slate-500 font-medium px-1">
+                          {Math.max(1, explorerPage + 1)} / {Math.max(1, Math.ceil(foldersTotal / PAGE_SIZE))}
+                        </span>
+                        <button
+                          onClick={() => {
+                            const maxPage = Math.ceil(foldersTotal / PAGE_SIZE) - 1;
+                            const newPage = Math.min(maxPage, explorerPage + 1);
+                            setExplorerPage(newPage);
+                            fetchExplorerFolders(explorerFilter, false, newPage, explorerSearch);
+                          }}
+                          disabled={explorerPage >= Math.ceil(foldersTotal / PAGE_SIZE) - 1 || explorerLoading}
+                          className="p-1 hover:bg-slate-100 disabled:opacity-30 rounded text-slate-600 transition cursor-pointer disabled:cursor-not-allowed"
+                          title="Next Page"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      {/* Force Refresh */}
+                      <button
+                        onClick={() => fetchExplorerFolders(explorerFilter, true, explorerPage, explorerSearch)}
+                        disabled={explorerLoading}
+                        className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition cursor-pointer ml-1"
+                        title="Force Rescan"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${explorerLoading ? 'animate-spin text-indigo-600' : ''}`} />
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -614,7 +696,16 @@ export default function App() {
                         {folders.length === 0 ? (
                           <tr>
                             <td colSpan={5} className="py-8 text-center text-slate-400">
-                              {explorerLoading ? 'Scanning design directory...' : 'No design folders found matching this filter.'}
+                              {explorerLoading ? (
+                                <div className="flex items-center justify-center gap-2">
+                                  <RefreshCw className="w-4 h-4 animate-spin text-indigo-500" />
+                                  <span>Scanning design directory...</span>
+                                </div>
+                              ) : explorerError ? (
+                                <div className="text-rose-500 font-medium">{explorerError}</div>
+                              ) : (
+                                'No design folders found matching this filter.'
+                              )}
                             </td>
                           </tr>
                         ) : (
