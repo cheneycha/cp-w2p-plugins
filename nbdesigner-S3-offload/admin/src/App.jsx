@@ -22,6 +22,16 @@ import {
   Zap,
   ChevronLeft,
   ChevronRight,
+  Play,
+  Pause,
+  Clock,
+  Activity,
+  Trash2,
+  Wifi,
+  WifiOff,
+  ScrollText,
+  Radio,
+  Sliders,
 } from 'lucide-react';
 
 const PRESETS = {
@@ -83,9 +93,39 @@ export default function App() {
     cleanup_abandoned_drafts: true,
     abandoned_drafts_days: 7,
     font_cache_max_age: 2592000,
+    sync_paused: true,
+    sync_schedule_time: '03:00',
+    enable_activity_log: true,
+    max_log_entries: 200,
   });
 
   const [stats, setStats] = useState(null);
+  const [syncStatus, setSyncStatus] = useState({
+    is_running: false,
+    is_paused: true,
+    current_action: 'Idle',
+    started_at: null,
+    server_time: '',
+    server_timezone: '',
+    sync_schedule_time: '03:00',
+    next_scheduled_run: null,
+  });
+  const [bucketConnection, setBucketConnection] = useState({
+    connected: false,
+    message: '',
+    bucket: '',
+    latency_ms: 0,
+    tested_at: null,
+  });
+  const [checkingConnection, setCheckingConnection] = useState(false);
+  const [togglingPause, setTogglingPause] = useState(false);
+
+  // Activity Log state
+  const [logs, setLogs] = useState([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [clearingLogs, setClearingLogs] = useState(false);
+  const [logsFilter, setLogsFilter] = useState('all');
+
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -120,7 +160,15 @@ export default function App() {
   useEffect(() => {
     fetchSettings();
     fetchStats();
+    fetchConnectionStatus(false);
+    fetchLogs();
     fetchExplorerFolders('all', false, 0, '');
+
+    // Poll live status every 15s to monitor active sync progress
+    const interval = setInterval(() => {
+      fetchStats();
+    }, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   const showNotice = (type, message) => {
@@ -149,11 +197,115 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setStats(data.stats || data);
+        if (data.sync_status) {
+          setSyncStatus(data.sync_status);
+        }
+        if (data.bucket_connection) {
+          setBucketConnection(data.bucket_connection);
+        }
       }
     } catch (err) {
       console.error('Failed to load stats:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchConnectionStatus = async (force = true) => {
+    setCheckingConnection(true);
+    try {
+      const res = await fetch(`${config.restUrl}/connection-status${force ? '?force=1' : ''}`, { headers: getHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status) {
+          setBucketConnection(data.status);
+          if (force) {
+            if (data.status.connected) {
+              showNotice('success', data.status.message || 'Connected to S3 bucket!');
+            } else {
+              showNotice('error', data.status.message || 'Failed to connect to S3 bucket.');
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to probe connection:', err);
+      if (force) {
+        showNotice('error', 'Connection probe failed: ' + err.message);
+      }
+    } finally {
+      setCheckingConnection(false);
+    }
+  };
+
+  const handleTogglePause = async () => {
+    const targetState = !syncStatus.is_paused;
+    const confirmMsg = targetState
+      ? 'Pause all automated S3 uploads and local file deletions? Safe Mode will prevent any background sync.'
+      : 'Resume automated S3 uploads and cold order offloads according to your configured schedule?';
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+    setTogglingPause(true);
+    try {
+      const res = await fetch(`${config.restUrl}/sync/toggle-pause`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ paused: targetState }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSyncStatus(data.sync_status || ((prev) => ({ ...prev, is_paused: targetState })));
+        setSettings((prev) => ({ ...prev, sync_paused: targetState }));
+        showNotice(targetState ? 'warning' : 'success', data.message);
+        fetchStats();
+        fetchLogs();
+      } else {
+        showNotice('error', data.message || 'Failed to toggle sync pause state.');
+      }
+    } catch (err) {
+      showNotice('error', 'Network error toggling sync pause: ' + err.message);
+    } finally {
+      setTogglingPause(false);
+    }
+  };
+
+  const fetchLogs = async () => {
+    setLogsLoading(true);
+    try {
+      const res = await fetch(`${config.restUrl}/logs?limit=150`, { headers: getHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setLogs(data.logs || []);
+      }
+    } catch (err) {
+      console.error('Failed to load logs:', err);
+    } finally {
+      setLogsLoading(false);
+    }
+  };
+
+  const handleClearLogs = async () => {
+    if (!window.confirm('Clear all activity audit logs from the database?')) {
+      return;
+    }
+    setClearingLogs(true);
+    try {
+      const res = await fetch(`${config.restUrl}/logs/clear`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setLogs([]);
+        showNotice('success', 'Activity log cleared.');
+      } else {
+        showNotice('error', data.message || 'Failed to clear activity log.');
+      }
+    } catch (err) {
+      showNotice('error', 'Network error clearing logs: ' + err.message);
+    } finally {
+      setClearingLogs(false);
     }
   };
 
@@ -404,12 +556,12 @@ export default function App() {
         <div className="absolute right-0 top-0 translate-x-10 -translate-y-10 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
           <div>
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-200 border border-indigo-400/20">
                 <Sparkles className="w-3.5 h-3.5 text-indigo-300" /> Web-to-Print Tiered Storage Engine
               </span>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                PHP 8.3 & HPOS Ready
+                v1.0.2 • PHP 8.3 & HPOS
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
@@ -432,18 +584,141 @@ export default function App() {
           </div>
         </div>
 
+        {/* Live Operational Status & Master Pause/Resume Bar */}
+        <div className="mt-6 pt-5 border-t border-indigo-700/50 grid grid-cols-1 md:grid-cols-3 gap-3 relative z-10">
+          {/* Card 1: Bucket Connection Status */}
+          <div className="bg-indigo-950/60 backdrop-blur-sm border border-indigo-500/30 rounded-xl p-3.5 flex items-center justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                bucketConnection.connected ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-400/30' : 'bg-rose-500/20 text-rose-400 border border-rose-400/30'
+              }`}>
+                {bucketConnection.connected ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
+              </div>
+              <div className="min-w-0">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-indigo-300">S3 Bucket</div>
+                <div className="text-xs font-semibold text-white truncate">
+                  {bucketConnection.connected ? (
+                    <span className="text-emerald-300 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                      {bucketConnection.bucket} ({bucketConnection.latency_ms}ms)
+                    </span>
+                  ) : (
+                    <span className="text-rose-300 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+                      {settings.bucket ? 'Connection Failed' : 'Not Configured'}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => fetchConnectionStatus(true)}
+              disabled={checkingConnection}
+              title="Test connection to bucket"
+              className="p-1.5 hover:bg-indigo-800/60 text-indigo-200 hover:text-white rounded-lg transition cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${checkingConnection ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+
+          {/* Card 2: Sync Running Indicator */}
+          <div className="bg-indigo-950/60 backdrop-blur-sm border border-indigo-500/30 rounded-xl p-3.5 flex items-center justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                syncStatus.is_running ? 'bg-indigo-500/30 text-indigo-300 animate-pulse border border-indigo-400/40' : 'bg-slate-700/40 text-slate-400 border border-slate-600/30'
+              }`}>
+                {syncStatus.is_running ? <RefreshCw className="w-4 h-4 animate-spin text-indigo-300" /> : <Activity className="w-4 h-4" />}
+              </div>
+              <div className="min-w-0">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-indigo-300">Sync Activity</div>
+                <div className="text-xs font-semibold text-white truncate">
+                  {syncStatus.is_running ? (
+                    <span className="text-indigo-300 font-bold flex items-center gap-1.5">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                      </span>
+                      Syncing: {syncStatus.current_action}
+                    </span>
+                  ) : syncStatus.is_paused ? (
+                    <span className="text-amber-300">⏸️ Paused (Safe Mode)</span>
+                  ) : (
+                    <span className="text-emerald-300">🟢 Idle (Auto-Sync On)</span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={fetchStats}
+              title="Refresh sync status"
+              className="p-1.5 hover:bg-indigo-800/60 text-indigo-200 hover:text-white rounded-lg transition cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+
+          {/* Card 3: Master Pause / Resume Kill-Switch */}
+          <div className={`backdrop-blur-sm border rounded-xl p-3.5 flex items-center justify-between transition ${
+            syncStatus.is_paused
+              ? 'bg-amber-950/40 border-amber-500/40'
+              : 'bg-emerald-950/40 border-emerald-500/40'
+          }`}>
+            <div className="flex items-center gap-3 min-w-0">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                syncStatus.is_paused
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-400/30'
+                  : 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
+              }`}>
+                {syncStatus.is_paused ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+              </div>
+              <div className="min-w-0">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-indigo-200">
+                  {syncStatus.is_paused ? 'Safe Mode Active' : 'Auto Sync State'}
+                </div>
+                <div className="text-xs font-bold text-white truncate">
+                  {syncStatus.is_paused ? 'Uploads & Deletions Paused' : 'Scheduled Sweeps Running'}
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleTogglePause}
+              disabled={togglingPause}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm ${
+                syncStatus.is_paused
+                  ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                  : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
+              }`}
+            >
+              {togglingPause ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : syncStatus.is_paused ? (
+                <Play className="w-3.5 h-3.5 fill-current" />
+              ) : (
+                <Pause className="w-3.5 h-3.5 fill-current" />
+              )}
+              {syncStatus.is_paused ? 'Resume Sync' : 'Pause Sync'}
+            </button>
+          </div>
+        </div>
+
         {/* Global Toast Notice */}
         {notice && (
           <div
             className={`mt-4 p-4 rounded-xl border text-sm flex items-center justify-between shadow-sm animate-fade-in ${
               notice.type === 'success'
                 ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-200'
+                : notice.type === 'warning'
+                ? 'bg-amber-950/80 border-amber-500/50 text-amber-200'
                 : 'bg-rose-950/80 border-rose-500/50 text-rose-200'
             }`}
           >
             <div className="flex items-center gap-2.5">
               {notice.type === 'success' ? (
                 <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+              ) : notice.type === 'warning' ? (
+                <Pause className="w-5 h-5 text-amber-400 flex-shrink-0" />
               ) : (
                 <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0" />
               )}
@@ -459,7 +734,7 @@ export default function App() {
         )}
 
         {/* Nav Tabs Bar */}
-        <div className="flex flex-wrap gap-2 mt-8 pt-4 border-t border-indigo-700/40">
+        <div className="flex flex-wrap gap-2 mt-6 pt-4 border-t border-indigo-700/40">
           <button
             onClick={() => {
               setActiveTab('explorer');
@@ -494,6 +769,25 @@ export default function App() {
             }`}
           >
             <Layers className="w-4 h-4" /> Tiered Storage Policy
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveTab('logs');
+              fetchLogs();
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition cursor-pointer ${
+              activeTab === 'logs'
+                ? 'bg-white text-indigo-900 shadow-md'
+                : 'text-indigo-200 hover:bg-indigo-800/50 hover:text-white'
+            }`}
+          >
+            <ScrollText className="w-4 h-4" /> Activity Log
+            {logs.length > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-indigo-500 text-white">
+                {logs.length}
+              </span>
+            )}
           </button>
 
           <button
@@ -997,6 +1291,76 @@ export default function App() {
               </div>
             </div>
 
+            {/* Master Safety Pause & Schedule Controls */}
+            <div className="bg-slate-50 rounded-2xl border border-slate-200 p-5 space-y-5">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+                <div className="flex items-start gap-3">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                    settings.sync_paused ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+                  }`}>
+                    {settings.sync_paused ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      Master Sync & Purge Switch
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {settings.sync_paused
+                        ? 'Safe Mode Active: All automatic S3 uploads and local file purges are completely stopped.'
+                        : 'Active: Automated daily cold sweeps and draft cleanup are scheduled and running.'}
+                    </p>
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-3 cursor-pointer self-start md:self-center bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm">
+                  <input
+                    type="checkbox"
+                    checked={settings.sync_paused}
+                    onChange={(e) => setSettings({ ...settings, sync_paused: e.target.checked })}
+                    className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-slate-300 cursor-pointer"
+                  />
+                  <span className="text-xs font-bold text-slate-800">
+                    {settings.sync_paused ? '⏸️ Syncing Paused (Safe)' : '▶️ Syncing Resumed'}
+                  </span>
+                </label>
+              </div>
+
+              {/* Scheduled Run Time & Server Time Display */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white p-4 rounded-xl border border-slate-200">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-indigo-600" /> Daily Sync Scheduled Run Time
+                  </label>
+                  <input
+                    type="time"
+                    value={settings.sync_schedule_time || '03:00'}
+                    onChange={(e) => setSettings({ ...settings, sync_schedule_time: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2 text-sm font-mono font-bold focus:bg-white focus:ring-2 focus:ring-indigo-500 transition"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">
+                    Triggers once daily at this local server hour via Action Scheduler.
+                  </p>
+                </div>
+
+                <div className="bg-gradient-to-br from-indigo-50/70 to-slate-50 p-4 rounded-xl border border-indigo-100 flex flex-col justify-between">
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 flex items-center gap-1.5">
+                      <Radio className="w-3.5 h-3.5 text-indigo-500 animate-pulse" /> Live Server Clock
+                    </span>
+                    <div className="text-lg font-mono font-extrabold text-slate-900 mt-1">
+                      {syncStatus.server_time || 'Loading time...'}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-indigo-900/80 pt-2 border-t border-indigo-100 mt-2">
+                    <span>Timezone: <strong>{syncStatus.server_timezone || 'UTC'}</strong></span>
+                    {syncStatus.next_scheduled_run && (
+                      <span className="text-[11px] text-slate-500">Next run: {syncStatus.next_scheduled_run}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Cold Order Offload Setting */}
             <div className="space-y-5 pt-2">
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
@@ -1106,6 +1470,58 @@ export default function App() {
                   </div>
                 </label>
               </div>
+
+              {/* Activity Log Protection Configuration */}
+              <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={settings.enable_activity_log}
+                      onChange={(e) => setSettings({ ...settings, enable_activity_log: e.target.checked })}
+                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
+                    />
+                    <div>
+                      <span className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                        <ScrollText className="w-4 h-4 text-indigo-600" /> Enable Activity Audit Log
+                      </span>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Records background sweep runs, manual offloads, restorations, and pause/resume events.
+                      </p>
+                    </div>
+                  </label>
+
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">
+                    Auto Disk-Bloat Protection
+                  </span>
+                </div>
+
+                {settings.enable_activity_log && (
+                  <div className="ml-7 pt-3 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                        Max Log Entries (FIFO Auto-Pruned)
+                      </label>
+                      <input
+                        type="number"
+                        min="50"
+                        max="500"
+                        value={settings.max_log_entries || 200}
+                        onChange={(e) => setSettings({ ...settings, max_log_entries: parseInt(e.target.value, 10) || 200 })}
+                        className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-sm font-mono focus:ring-2 focus:ring-indigo-500 transition"
+                      />
+                      <p className="text-xs text-slate-400 mt-1">
+                        Automatically discards oldest logs once limit is reached. Capped to under 35KB in database.
+                      </p>
+                    </div>
+                    <div className="bg-white p-3.5 rounded-xl border border-slate-200 flex items-center">
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        🛡️ <strong>Drive Safe Guarantee:</strong> Log entries are stored in a non-autoloaded WordPress option and pruned immediately on write. Unlimited disk bloat is mathematically impossible.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="pt-6 border-t border-slate-100 flex justify-end">
@@ -1117,6 +1533,163 @@ export default function App() {
               >
                 {saving ? 'Saving...' : 'Save Settings'}
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: ACTIVITY AUDIT LOG */}
+        {activeTab === 'logs' && (
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <ScrollText className="w-5 h-5 text-indigo-600" /> Activity Audit Log
+                </h2>
+                <p className="text-sm text-slate-500 mt-1">
+                  Trace background sweeps, trial batch tests, restorations, and master switch toggles. Entries are automatically FIFO pruned to prevent disk consumption.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2.5 self-start md:self-center">
+                <button
+                  type="button"
+                  onClick={fetchLogs}
+                  disabled={logsLoading}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${logsLoading ? 'animate-spin' : ''}`} /> Refresh
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearLogs}
+                  disabled={clearingLogs || logs.length === 0}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold rounded-xl transition disabled:opacity-50 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Clear Log
+                </button>
+              </div>
+            </div>
+
+            {/* Filter Chips */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 mr-1 flex items-center gap-1">
+                <Filter className="w-3.5 h-3.5" /> Filter:
+              </span>
+              {[
+                { id: 'all', label: 'All Events' },
+                { id: 'SWEEP', label: 'Sweeps' },
+                { id: 'OFFLOAD', label: 'Offloads & Trials' },
+                { id: 'RESTORE', label: 'Restorations' },
+                { id: 'SYNC_', label: 'Pause / Resume' },
+                { id: 'error', label: 'Errors Only' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setLogsFilter(tab.id)}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                    logsFilter === tab.id
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Log Table */}
+            <div className="overflow-hidden rounded-xl border border-slate-200">
+              <table className="min-w-full divide-y divide-slate-200 text-left text-xs">
+                <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-bold">
+                  <tr>
+                    <th className="py-3 px-4">Timestamp</th>
+                    <th className="py-3 px-4">Action</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4">Message & Details</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {logsLoading ? (
+                    <tr>
+                      <td colSpan={4} className="py-12 text-center text-slate-400">
+                        <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-indigo-500" />
+                        Loading activity logs...
+                      </td>
+                    </tr>
+                  ) : logs.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="py-12 text-center text-slate-400">
+                        <ScrollText className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                        No activity records found. Events from automated sweeps and trial runs will show up here.
+                      </td>
+                    </tr>
+                  ) : (
+                    logs
+                      .filter((log) => {
+                        if (logsFilter === 'all') return true;
+                        if (logsFilter === 'error') return log.status === 'error';
+                        return (log.action || '').toUpperCase().includes(logsFilter.toUpperCase());
+                      })
+                      .map((log) => (
+                        <tr key={log.id} className="hover:bg-slate-50/70 transition font-mono">
+                          <td className="py-3 px-4 whitespace-nowrap text-slate-500 font-sans text-xs">
+                            {log.time}
+                          </td>
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold ${
+                              log.action.includes('PAUSE')
+                                ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                : log.action.includes('RESUME')
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                : log.action.includes('RESTORE')
+                                ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                                : log.action.includes('SWEEP')
+                                ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                                : 'bg-slate-100 text-slate-800 border border-slate-200'
+                            }`}>
+                              {log.action}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 whitespace-nowrap font-sans">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                              log.status === 'success'
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : log.status === 'warning'
+                                ? 'bg-amber-50 text-amber-700'
+                                : log.status === 'error'
+                                ? 'bg-rose-50 text-rose-700'
+                                : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${
+                                log.status === 'success'
+                                  ? 'bg-emerald-500'
+                                  : log.status === 'warning'
+                                  ? 'bg-amber-500'
+                                  : log.status === 'error'
+                                  ? 'bg-rose-500'
+                                  : 'bg-slate-400'
+                              }`} />
+                              {log.status.toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-slate-800 font-sans text-xs leading-relaxed">
+                            <div>{log.message}</div>
+                            {log.context && Object.keys(log.context).length > 0 && (
+                              <details className="mt-1 cursor-pointer">
+                                <summary className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold font-mono">
+                                  View context metadata
+                                </summary>
+                                <pre className="mt-1 p-2 bg-slate-900 text-slate-100 text-[10px] rounded-lg overflow-x-auto font-mono">
+                                  {JSON.stringify(log.context, null, 2)}
+                                </pre>
+                              </details>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         )}

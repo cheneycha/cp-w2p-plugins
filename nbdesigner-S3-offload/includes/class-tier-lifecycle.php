@@ -53,6 +53,14 @@ class NBD_S3_Tier_Lifecycle {
     }
 
     /**
+     * Reset cached S3 client and connection transient.
+     */
+    public static function reset_client(): void {
+        self::$client = null;
+        delete_transient( 'nbd_s3_bucket_connection' );
+    }
+
+    /**
      * Pre-define CDN URLs before NBDesigner defines local defaults.
      */
     public static function maybe_predefine_cdn_urls(): void {
@@ -185,6 +193,7 @@ class NBD_S3_Tier_Lifecycle {
         }
 
         delete_transient( 'nbd_s3_explorer_dirs_v2' );
+        NBD_S3_Logger::log( 'RESTORE', sprintf( 'Restored folder %s from S3 to local SSD.', $item_key ), array( 'folder' => $item_key ), 'success' );
         return true;
     }
 
@@ -235,6 +244,7 @@ class NBD_S3_Tier_Lifecycle {
         }
 
         delete_transient( 'nbd_s3_explorer_dirs_v2' );
+        NBD_S3_Logger::log( 'WHITELIST_RESTORE', sprintf( 'Restored %d whitelisted admin templates to local SSD (%d already local).', $restored, $already_local ), array( 'restored' => $restored, 'already_local' => $already_local ), 'info' );
         return array(
             'total'         => count( $folders ),
             'restored'      => $restored,
@@ -450,9 +460,12 @@ class NBD_S3_Tier_Lifecycle {
             }
         }
 
+        $msg = sprintf( 'Tested offload on %d folders: %d succeeded.', count( $eligible ), $total_uploaded );
+        NBD_S3_Logger::log( 'TRIAL_BATCH', $msg, array( 'tested' => count( $eligible ), 'succeeded' => $total_uploaded ), $total_uploaded > 0 ? 'success' : 'warning' );
+
         return array(
             'success'        => true,
-            'message'        => sprintf( 'Tested offload on %d folders: %d succeeded.', count( $eligible ), $total_uploaded ),
+            'message'        => $msg,
             'total_tested'   => count( $eligible ),
             'total_uploaded' => $total_uploaded,
             'results'        => $results,
@@ -464,46 +477,64 @@ class NBD_S3_Tier_Lifecycle {
      */
     public static function run_cold_sweep(): void {
         $settings = NBD_S3_Settings::get_all();
+
+        // Safety Kill-Switch: Skip if syncing is paused by admin
+        if ( ! empty( $settings['sync_paused'] ) ) {
+            NBD_S3_Logger::log( 'SWEEP', __( 'Automated Cold Sweep skipped because sync is paused.', 'nbd-s3-offload' ), array(), 'warning' );
+            return;
+        }
+
         if ( empty( $settings['enable_cold_order_offload'] ) ) {
             return;
         }
 
-        $days       = $settings['cold_retention_days'];
-        $cutoff_ts  = time() - ( $days * DAY_IN_SECONDS );
-        $cutoff_str = gmdate( 'Y-m-d H:i:s', $cutoff_ts );
+        // Set running state indicator
+        set_transient( 'nbd_s3_sync_status', array(
+            'running'    => true,
+            'action'     => 'Cold Sweep',
+            'started_at' => time(),
+        ), 1800 );
 
-        // Query completed orders older than retention threshold
-        $orders = wc_get_orders( array(
-            'status'        => array( 'wc-completed' ),
-            'date_created'  => '<' . $cutoff_ts,
-            'limit'         => 30,
-            'return'        => 'ids',
-        ) );
+        $processed = 0;
+        try {
+            $days       = $settings['cold_retention_days'];
+            $cutoff_ts  = time() - ( $days * DAY_IN_SECONDS );
+            $cutoff_str = gmdate( 'Y-m-d H:i:s', $cutoff_ts );
 
-        if ( empty( $orders ) ) {
-            return;
-        }
+            // Query completed orders older than retention threshold
+            $orders = wc_get_orders( array(
+                'status'        => array( 'wc-completed' ),
+                'date_created'  => '<' . $cutoff_ts,
+                'limit'         => 30,
+                'return'        => 'ids',
+            ) );
 
-        foreach ( $orders as $order_id ) {
-            $order = wc_get_order( $order_id );
-            if ( ! $order ) {
-                continue;
-            }
+            if ( ! empty( $orders ) ) {
+                foreach ( $orders as $order_id ) {
+                    $order = wc_get_order( $order_id );
+                    if ( ! $order ) {
+                        continue;
+                    }
 
-            foreach ( $order->get_items() as $item_id => $item ) {
-                $item_key = $item->get_meta( '_nbd' );
-                if ( empty( $item_key ) ) {
-                    $item_key = $item->get_meta( '_nbd_item_key' );
-                }
+                    foreach ( $order->get_items() as $item_id => $item ) {
+                        $item_key = $item->get_meta( '_nbd' ) ?: $item->get_meta( '_nbd_item_key' );
 
-                if ( ! empty( $item_key ) ) {
-                    $already_offloaded = $item->get_meta( '_nbd_s3_offloaded' );
-                    if ( empty( $already_offloaded ) ) {
-                        // Queue or process single offload
-                        self::process_single_offload( $item_key, $order_id );
+                        if ( ! empty( $item_key ) ) {
+                            $already_offloaded = $item->get_meta( '_nbd_s3_offloaded' );
+                            if ( empty( $already_offloaded ) ) {
+                                $res = self::process_single_offload( $item_key, $order_id );
+                                if ( ! empty( $res['success'] ) ) {
+                                    $processed++;
+                                }
+                            }
+                        }
                     }
                 }
             }
+
+            NBD_S3_Logger::log( 'SWEEP', sprintf( 'Automated Cold Sweep completed. Offloaded %d design items.', $processed ), array( 'processed' => $processed ), 'success' );
+        } finally {
+            delete_transient( 'nbd_s3_sync_status' );
         }
     }
 
@@ -634,9 +665,12 @@ class NBD_S3_Tier_Lifecycle {
             }
         }
 
+        $msg = sprintf( __( 'Font sync complete. Uploaded %1$d files (%2$s) with 30-day immutable cache.', 'nbd-s3-offload' ), $uploaded, size_format( $bytes ) );
+        NBD_S3_Logger::log( 'FONT_SYNC', $msg, array( 'uploaded' => $uploaded, 'failed' => $failed, 'bytes' => $bytes ), 0 === $failed ? 'success' : 'warning' );
+
         return array(
             'success'  => 0 === $failed && $uploaded > 0,
-            'message'  => sprintf( __( 'Font sync complete. Uploaded %1$d files (%2$s) with 30-day immutable cache.', 'nbd-s3-offload' ), $uploaded, size_format( $bytes ) ),
+            'message'  => $msg,
             'uploaded' => $uploaded,
             'failed'   => $failed,
             'bytes'    => $bytes,
@@ -649,7 +683,7 @@ class NBD_S3_Tier_Lifecycle {
     public static function run_draft_cleanup(): void {
         global $wpdb;
         $settings = NBD_S3_Settings::get_all();
-        if ( empty( $settings['cleanup_abandoned_drafts'] ) ) {
+        if ( ! empty( $settings['sync_paused'] ) || empty( $settings['cleanup_abandoned_drafts'] ) ) {
             return;
         }
 
@@ -666,6 +700,7 @@ class NBD_S3_Tier_Lifecycle {
             return;
         }
 
+        $deleted_count = 0;
         foreach ( $dirs as $dir ) {
             $folder = basename( $dir );
             $mtime  = filemtime( $dir );
@@ -692,7 +727,13 @@ class NBD_S3_Tier_Lifecycle {
             }
 
             // Unclaimed orphan draft older than cutoff -> purge
-            self::delete_directory( $dir );
+            if ( self::delete_directory( $dir ) ) {
+                $deleted_count++;
+            }
+        }
+
+        if ( $deleted_count > 0 ) {
+            NBD_S3_Logger::log( 'DRAFT_CLEANUP', sprintf( 'Cleaned up %d abandoned guest drafts.', $deleted_count ), array( 'deleted' => $deleted_count ), 'info' );
         }
     }
 
@@ -766,16 +807,137 @@ class NBD_S3_Tier_Lifecycle {
     }
 
     /**
+     * Calculate unix timestamp for next scheduled sync time.
+     */
+    public static function calculate_next_schedule_timestamp( string $time_str = '03:00' ): int {
+        $tz = function_exists( 'wp_timezone' ) ? wp_timezone() : new DateTimeZone( 'UTC' );
+        $now = new DateTimeImmutable( 'now', $tz );
+        $parts = explode( ':', trim( $time_str ) );
+        $hour = isset( $parts[0] ) ? (int) $parts[0] : 3;
+        $minute = isset( $parts[1] ) ? (int) $parts[1] : 0;
+
+        $scheduled = $now->setTime( $hour, $minute, 0 );
+        if ( $scheduled <= $now ) {
+            $scheduled = $scheduled->modify( '+1 day' );
+        }
+        return $scheduled->getTimestamp();
+    }
+
+    /**
+     * Reschedule Action Scheduler background sweep to match sync_schedule_time.
+     */
+    public static function reschedule_tasks(): void {
+        if ( ! function_exists( 'as_schedule_recurring_action' ) ) {
+            return;
+        }
+
+        $settings = NBD_S3_Settings::get_all();
+        $target_time = $settings['sync_schedule_time'] ?? '03:00';
+        $start_ts = self::calculate_next_schedule_timestamp( $target_time );
+
+        if ( function_exists( 'as_unschedule_all_actions' ) ) {
+            as_unschedule_all_actions( 'nbd_s3_cron_cold_sweep' );
+        }
+        as_schedule_recurring_action( $start_ts, DAY_IN_SECONDS, 'nbd_s3_cron_cold_sweep' );
+    }
+
+    /**
      * Register recurring Action Scheduler tasks.
      */
     public static function register_schedules(): void {
         if ( function_exists( 'as_schedule_recurring_action' ) ) {
             if ( ! as_has_scheduled_action( 'nbd_s3_cron_cold_sweep' ) ) {
-                as_schedule_recurring_action( time() + 300, DAY_IN_SECONDS, 'nbd_s3_cron_cold_sweep' );
+                $settings = NBD_S3_Settings::get_all();
+                $target_time = $settings['sync_schedule_time'] ?? '03:00';
+                $start_ts = self::calculate_next_schedule_timestamp( $target_time );
+                as_schedule_recurring_action( $start_ts, DAY_IN_SECONDS, 'nbd_s3_cron_cold_sweep' );
             }
             if ( ! as_has_scheduled_action( 'nbd_s3_cron_cleanup_drafts' ) ) {
-                as_schedule_recurring_action( time() + 600, DAY_IN_SECONDS, 'nbd_s3_cron_cleanup_drafts' );
+                as_schedule_recurring_action( time() + 3600, DAY_IN_SECONDS, 'nbd_s3_cron_cleanup_drafts' );
             }
+        }
+    }
+
+    /**
+     * Get live sync running and pause status.
+     */
+    public static function get_sync_status(): array {
+        $settings = NBD_S3_Settings::get_all();
+        $transient = get_transient( 'nbd_s3_sync_status' );
+        $is_running = ! empty( $transient ) && ! empty( $transient['running'] );
+
+        $next_run_ts = function_exists( 'as_next_scheduled_action' ) ? as_next_scheduled_action( 'nbd_s3_cron_cold_sweep' ) : null;
+        $next_run_formatted = $next_run_ts && function_exists( 'wp_date' ) ? wp_date( 'Y-m-d H:i:s T', $next_run_ts ) : null;
+
+        $tz_string = function_exists( 'wp_timezone_string' ) ? wp_timezone_string() : 'UTC';
+
+        return array(
+            'is_running'         => $is_running,
+            'is_paused'          => ! empty( $settings['sync_paused'] ),
+            'current_action'     => $is_running ? ( $transient['action'] ?? 'Running' ) : 'Idle',
+            'started_at'         => $is_running ? ( $transient['started_at'] ?? null ) : null,
+            'server_time'        => function_exists( 'wp_date' ) ? wp_date( 'Y-m-d H:i:s' ) : gmdate( 'Y-m-d H:i:s' ),
+            'server_timezone'    => $tz_string,
+            'sync_schedule_time' => $settings['sync_schedule_time'] ?? '03:00',
+            'next_scheduled_run' => $next_run_formatted,
+        );
+    }
+
+    /**
+     * Check live S3 bucket connection status.
+     */
+    public static function get_bucket_connection_status( bool $force = false ): array {
+        $transient_key = 'nbd_s3_bucket_connection';
+        if ( ! $force ) {
+            $cached = get_transient( $transient_key );
+            if ( is_array( $cached ) ) {
+                return $cached;
+            }
+        }
+
+        $settings = NBD_S3_Settings::get_all();
+        $bucket   = trim( $settings['bucket'] ?? '' );
+        $key      = trim( $settings['access_key'] ?? '' );
+        $secret   = trim( $settings['secret_key'] ?? '' );
+
+        if ( empty( $bucket ) || empty( $key ) || empty( $secret ) ) {
+            $res = array(
+                'connected'  => false,
+                'message'    => __( 'Credentials or bucket not configured.', 'nbd-s3-offload' ),
+                'bucket'     => $bucket ?: null,
+                'latency_ms' => 0,
+                'tested_at'  => time(),
+            );
+            set_transient( $transient_key, $res, 60 );
+            return $res;
+        }
+
+        $start = microtime( true );
+        try {
+            $client = self::get_client();
+            // Lightweight probe: list max 1 object
+            $client->list_objects( '', 1 );
+            $latency = round( ( microtime( true ) - $start ) * 1000 );
+
+            $res = array(
+                'connected'  => true,
+                'message'    => sprintf( __( 'Connected to "%s" (%d ms)', 'nbd-s3-offload' ), $bucket, $latency ),
+                'bucket'     => $bucket,
+                'latency_ms' => $latency,
+                'tested_at'  => time(),
+            );
+            set_transient( $transient_key, $res, 120 ); // Cache for 2 minutes
+            return $res;
+        } catch ( \Throwable $e ) {
+            $res = array(
+                'connected'  => false,
+                'message'    => $e->getMessage(),
+                'bucket'     => $bucket,
+                'latency_ms' => 0,
+                'tested_at'  => time(),
+            );
+            set_transient( $transient_key, $res, 30 ); // Short cache for failures
+            return $res;
         }
     }
 }

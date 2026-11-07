@@ -83,6 +83,30 @@ class NBD_S3_REST_API {
             'callback'            => array( __CLASS__, 'restore_single_folder' ),
             'permission_callback' => array( __CLASS__, 'check_permission' ),
         ) );
+
+        register_rest_route( self::NAMESPACE, '/sync/toggle-pause', array(
+            'methods'             => \WP_REST_Server::CREATABLE,
+            'callback'            => array( __CLASS__, 'toggle_sync_pause' ),
+            'permission_callback' => array( __CLASS__, 'check_permission' ),
+        ) );
+
+        register_rest_route( self::NAMESPACE, '/connection-status', array(
+            'methods'             => \WP_REST_Server::READABLE,
+            'callback'            => array( __CLASS__, 'get_connection_status' ),
+            'permission_callback' => array( __CLASS__, 'check_permission' ),
+        ) );
+
+        register_rest_route( self::NAMESPACE, '/logs', array(
+            'methods'             => \WP_REST_Server::READABLE,
+            'callback'            => array( __CLASS__, 'get_logs' ),
+            'permission_callback' => array( __CLASS__, 'check_permission' ),
+        ) );
+
+        register_rest_route( self::NAMESPACE, '/logs/clear', array(
+            'methods'             => \WP_REST_Server::CREATABLE,
+            'callback'            => array( __CLASS__, 'clear_logs' ),
+            'permission_callback' => array( __CLASS__, 'check_permission' ),
+        ) );
     }
 
     /**
@@ -109,10 +133,18 @@ class NBD_S3_REST_API {
         $params  = $request->get_json_params() ?: array();
         $updated = NBD_S3_Settings::update( $params );
 
+        // Reset client and reschedule Action Scheduler if schedule changed
+        NBD_S3_Tier_Lifecycle::reset_client();
+        NBD_S3_Tier_Lifecycle::reschedule_tasks();
+
+        NBD_S3_Logger::log( 'SETTINGS_UPDATE', __( 'Plugin settings updated by admin.', 'nbd-s3-offload' ), array(), 'info' );
+
         return new \WP_REST_Response( array(
-            'success'  => $updated,
-            'message'  => $updated ? __( 'Settings saved successfully.', 'nbd-s3-offload' ) : __( 'No changes detected or update failed.', 'nbd-s3-offload' ),
-            'settings' => NBD_S3_Settings::get_for_client(),
+            'success'           => $updated,
+            'message'           => $updated ? __( 'Settings saved successfully.', 'nbd-s3-offload' ) : __( 'No changes detected or update failed.', 'nbd-s3-offload' ),
+            'settings'          => NBD_S3_Settings::get_for_client(),
+            'sync_status'       => NBD_S3_Tier_Lifecycle::get_sync_status(),
+            'bucket_connection' => NBD_S3_Tier_Lifecycle::get_bucket_connection_status( true ),
         ), 200 );
     }
 
@@ -212,6 +244,8 @@ class NBD_S3_REST_API {
                 'offloaded_orders_count' => $offloaded_orders_count,
                 'templates_count'        => $templates_count,
             ),
+            'sync_status'       => NBD_S3_Tier_Lifecycle::get_sync_status(),
+            'bucket_connection' => NBD_S3_Tier_Lifecycle::get_bucket_connection_status(),
         ), 200 );
     }
 
@@ -290,6 +324,65 @@ class NBD_S3_REST_API {
             'success' => false,
             'message' => sprintf( 'Failed to restore folder "%s" from S3.', $folder ),
         ), 400 );
+    }
+
+    /**
+     * POST /sync/toggle-pause
+     */
+    public static function toggle_sync_pause( \WP_REST_Request $request ): \WP_REST_Response {
+        $settings = NBD_S3_Settings::get_all();
+        $params   = $request->get_json_params() ?: array();
+
+        $new_pause_state = isset( $params['paused'] ) ? (bool) $params['paused'] : ! ( $settings['sync_paused'] ?? true );
+        NBD_S3_Settings::update( array( 'sync_paused' => $new_pause_state ) );
+
+        $log_action = $new_pause_state ? 'SYNC_PAUSED' : 'SYNC_RESUMED';
+        $log_msg    = $new_pause_state
+            ? __( 'Automated S3 sync and purges paused by admin (Safe Mode active).', 'nbd-s3-offload' )
+            : __( 'Automated S3 sync and purges resumed by admin.', 'nbd-s3-offload' );
+        NBD_S3_Logger::log( $log_action, $log_msg, array( 'paused' => $new_pause_state ), $new_pause_state ? 'warning' : 'info' );
+
+        return new \WP_REST_Response( array(
+            'success'     => true,
+            'paused'      => $new_pause_state,
+            'message'     => $log_msg,
+            'sync_status' => NBD_S3_Tier_Lifecycle::get_sync_status(),
+        ), 200 );
+    }
+
+    /**
+     * GET /connection-status
+     */
+    public static function get_connection_status( \WP_REST_Request $request ): \WP_REST_Response {
+        $force  = (bool) $request->get_param( 'force' );
+        $status = NBD_S3_Tier_Lifecycle::get_bucket_connection_status( $force );
+        return new \WP_REST_Response( array(
+            'success' => true,
+            'status'  => $status,
+        ), 200 );
+    }
+
+    /**
+     * GET /logs
+     */
+    public static function get_logs( \WP_REST_Request $request ): \WP_REST_Response {
+        $limit = max( 10, min( 500, (int) ( $request->get_param( 'limit' ) ?: 100 ) ) );
+        return new \WP_REST_Response( array(
+            'success' => true,
+            'logs'    => NBD_S3_Logger::get_logs( $limit ),
+        ), 200 );
+    }
+
+    /**
+     * POST /logs/clear
+     */
+    public static function clear_logs( \WP_REST_Request $request ): \WP_REST_Response {
+        NBD_S3_Logger::clear_logs();
+        return new \WP_REST_Response( array(
+            'success' => true,
+            'message' => __( 'Activity log cleared.', 'nbd-s3-offload' ),
+            'logs'    => array(),
+        ), 200 );
     }
 }
 

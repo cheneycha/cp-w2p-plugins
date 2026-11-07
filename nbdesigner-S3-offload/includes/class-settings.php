@@ -35,6 +35,11 @@ class NBD_S3_Settings {
             'cleanup_abandoned_drafts'   => true,
             'abandoned_drafts_days'      => 7,
             'font_cache_max_age'         => 2592000, // 30 days
+            // Safety & Sync Master Controls:
+            'sync_paused'                => true, // Master Kill-Switch: Paused by default on activation
+            'sync_schedule_time'         => '03:00', // Daily sync scheduled run time (24h HH:MM)
+            'enable_activity_log'        => true,
+            'max_log_entries'            => 200, // FIFO auto-pruned to prevent disk bloat
         );
     }
 
@@ -124,6 +129,10 @@ class NBD_S3_Settings {
             'cleanup_abandoned_drafts'   => ! empty( $data['cleanup_abandoned_drafts'] ),
             'abandoned_drafts_days'      => max( 1, absint( $data['abandoned_drafts_days'] ?? $current['abandoned_drafts_days'] ) ),
             'font_cache_max_age'         => max( 3600, absint( $data['font_cache_max_age'] ?? $current['font_cache_max_age'] ) ),
+            'sync_paused'                => ! empty( $data['sync_paused'] ),
+            'sync_schedule_time'         => sanitize_text_field( $data['sync_schedule_time'] ?? $current['sync_schedule_time'] ?? '03:00' ),
+            'enable_activity_log'        => ! empty( $data['enable_activity_log'] ),
+            'max_log_entries'            => max( 50, min( 500, absint( $data['max_log_entries'] ?? $current['max_log_entries'] ?? 200 ) ) ),
         );
 
         // Keep existing secret key if incoming value is masked or empty
