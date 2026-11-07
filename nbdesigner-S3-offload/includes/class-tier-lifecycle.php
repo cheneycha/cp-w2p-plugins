@@ -450,13 +450,22 @@ class NBD_S3_Tier_Lifecycle {
 
         $all_order_folders = array();
         $all_saved_folders = array();
-        if ( 'drafts' === $filter ) {
+        $all_cart_folders  = array();
+
+        $needs_order_lookup = in_array( $filter, array( 'drafts', 'active', 'aged', 'orders' ), true );
+        $needs_saved_lookup = in_array( $filter, array( 'drafts', 'saved' ), true );
+        $needs_cart_lookup  = in_array( $filter, array( 'cart', 'drafts' ), true );
+
+        if ( $needs_order_lookup ) {
             if ( $wpdb->get_var( "SHOW TABLES LIKE '{$order_meta_table}'" ) === $order_meta_table ) {
                 $order_cols = $wpdb->get_col( "SELECT DISTINCT meta_value FROM {$order_meta_table} WHERE meta_key = '_nbd' OR meta_key = '_nbd_item_key'" );
                 if ( ! empty( $order_cols ) ) {
                     $all_order_folders = array_flip( $order_cols );
                 }
             }
+        }
+
+        if ( $needs_saved_lookup ) {
             $mydesigns_table = $wpdb->prefix . 'nbdesigner_mydesigns';
             if ( $wpdb->get_var( "SHOW TABLES LIKE '{$mydesigns_table}'" ) === $mydesigns_table ) {
                 $saved_cols = $wpdb->get_col( "SELECT DISTINCT folder FROM {$mydesigns_table} WHERE folder IS NOT NULL AND folder != ''" );
@@ -464,6 +473,10 @@ class NBD_S3_Tier_Lifecycle {
                     $all_saved_folders = array_flip( $saved_cols );
                 }
             }
+        }
+
+        if ( $needs_cart_lookup ) {
+            $all_cart_folders = self::get_all_active_cart_folders();
         }
 
         $matched_items = array();
@@ -484,10 +497,10 @@ class NBD_S3_Tier_Lifecycle {
             if ( 'templates' === $filter && ! $is_tpl ) {
                 continue;
             }
-            if ( 'active' === $filter && ( $is_offloaded || $is_tpl || $is_aged ) ) {
+            if ( 'active' === $filter && ( ! isset( $all_order_folders[ $folder ] ) || $is_offloaded || $is_tpl || $is_aged ) ) {
                 continue;
             }
-            if ( 'aged' === $filter && ( ! $is_aged || $is_tpl ) ) {
+            if ( 'aged' === $filter && ( ! isset( $all_order_folders[ $folder ] ) || ! $is_aged || $is_tpl || $is_offloaded ) ) {
                 continue;
             }
             if ( 'offloaded' === $filter && ! $is_offloaded ) {
@@ -496,8 +509,17 @@ class NBD_S3_Tier_Lifecycle {
             if ( 'local' === $filter && $is_offloaded ) {
                 continue;
             }
+            if ( 'orders' === $filter && ! isset( $all_order_folders[ $folder ] ) ) {
+                continue;
+            }
+            if ( 'saved' === $filter && ! isset( $all_saved_folders[ $folder ] ) ) {
+                continue;
+            }
+            if ( 'cart' === $filter && ! isset( $all_cart_folders[ $folder ] ) ) {
+                continue;
+            }
             if ( 'drafts' === $filter ) {
-                if ( ! empty( $settings['protect_active_carts'] ) && self::is_in_active_cart( $folder ) ) {
+                if ( ! empty( $settings['protect_active_carts'] ) && isset( $all_cart_folders[ $folder ] ) ) {
                     continue;
                 }
                 if ( $is_tpl || $mtime >= $draft_cutoff || isset( $all_order_folders[ $folder ] ) || isset( $all_saved_folders[ $folder ] ) ) {
@@ -550,32 +572,36 @@ class NBD_S3_Tier_Lifecycle {
 
             $mtime = $item['mtime'];
 
-            // Fast draft check for the 25 paged items
-            $is_draft   = false;
-            $is_in_cart = false;
-            if ( ! $item['is_template'] && ! $is_offloaded ) {
-                if ( 'drafts' === $filter ) {
-                    $is_draft = true;
-                } else {
-                    $has_order = $wpdb->get_var( $wpdb->prepare( "SELECT order_item_id FROM {$order_meta_table} WHERE (meta_key = '_nbd' OR meta_key = '_nbd_item_key') AND meta_value = %s LIMIT 1", $folder ) );
-                    if ( ! $has_order ) {
-                        $mydesigns_table = $wpdb->prefix . 'nbdesigner_mydesigns';
-                        $has_saved = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$mydesigns_table} WHERE folder = %s LIMIT 1", $folder ) );
-                        if ( ! $has_saved ) {
-                            $is_draft = true;
-                        }
-                    }
-                }
-                if ( $is_draft ) {
-                    $is_in_cart = self::is_in_active_cart( $folder );
+            // Accurate order, saved, cart, draft determination
+            $has_order = isset( $all_order_folders[ $folder ] );
+            if ( ! $has_order && ! $needs_order_lookup ) {
+                if ( $wpdb->get_var( "SHOW TABLES LIKE '{$order_meta_table}'" ) === $order_meta_table ) {
+                    $has_order = (bool) $wpdb->get_var( $wpdb->prepare( "SELECT order_item_id FROM {$order_meta_table} WHERE (meta_key = '_nbd' OR meta_key = '_nbd_item_key') AND meta_value = %s LIMIT 1", $folder ) );
                 }
             }
+
+            $is_saved = isset( $all_saved_folders[ $folder ] );
+            if ( ! $is_saved && ! $needs_saved_lookup ) {
+                $mydesigns_table = $wpdb->prefix . 'nbdesigner_mydesigns';
+                if ( $wpdb->get_var( "SHOW TABLES LIKE '{$mydesigns_table}'" ) === $mydesigns_table ) {
+                    $is_saved = (bool) $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$mydesigns_table} WHERE folder = %s LIMIT 1", $folder ) );
+                }
+            }
+
+            $is_in_cart = isset( $all_cart_folders[ $folder ] );
+            if ( ! $is_in_cart && ! $needs_cart_lookup ) {
+                $is_in_cart = self::is_in_active_cart( $folder );
+            }
+
+            $is_draft = ( ! $item['is_template'] && ! $has_order && ! $is_saved );
 
             $folders[] = array(
                 'folder'         => $folder,
                 'is_template'    => $item['is_template'],
                 'is_aged'        => $item['is_aged'],
                 'is_offloaded'   => $is_offloaded,
+                'has_order'      => $has_order,
+                'is_saved'       => $is_saved,
                 'is_draft'       => $is_draft,
                 'is_in_cart'     => $is_in_cart,
                 'files_count'    => $count,
@@ -925,6 +951,48 @@ class NBD_S3_Tier_Lifecycle {
         }
 
         return false;
+    }
+
+    /**
+     * Get all design folder keys currently residing in active guest sessions or registered user carts.
+     *
+     * @return array<string, bool> Map of folder => true
+     */
+    public static function get_all_active_cart_folders(): array {
+        global $wpdb;
+        $cart_folders = array();
+
+        // 1. Usermeta persistent carts
+        $user_carts = $wpdb->get_col( "SELECT meta_value FROM {$wpdb->usermeta} WHERE meta_key LIKE '_woocommerce_persistent_cart_%' AND meta_value != ''" );
+        if ( ! empty( $user_carts ) ) {
+            foreach ( $user_carts as $cart_raw ) {
+                if ( preg_match_all( '/"(?:nbd_item_key|nbd|folder)";s:\d+:"([a-zA-Z0-9_\-]+)"/', $cart_raw, $matches ) ) {
+                    foreach ( $matches[1] as $k ) {
+                        $cart_folders[ $k ] = true;
+                    }
+                }
+            }
+        }
+
+        // 2. Active guest sessions
+        $table_sessions = $wpdb->prefix . 'woocommerce_sessions';
+        if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table_sessions ) ) === $table_sessions ) {
+            $sessions = $wpdb->get_col( $wpdb->prepare(
+                "SELECT session_value FROM {$table_sessions} WHERE session_expiry > %d",
+                time()
+            ) );
+            if ( ! empty( $sessions ) ) {
+                foreach ( $sessions as $sess_raw ) {
+                    if ( preg_match_all( '/"(?:nbd_item_key|nbd|folder)";s:\d+:"([a-zA-Z0-9_\-]+)"/', $sess_raw, $matches ) ) {
+                        foreach ( $matches[1] as $k ) {
+                            $cart_folders[ $k ] = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return $cart_folders;
     }
 
     /**

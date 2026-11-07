@@ -36,6 +36,8 @@ import {
   Archive,
   ExternalLink,
   ShoppingCart,
+  Bookmark,
+  Package,
 } from 'lucide-react';
 
 const PRESETS = {
@@ -623,6 +625,116 @@ export default function App() {
     }
   };
 
+  const renderFolderBadge = (f) => {
+    if (f.is_template) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200" title="Tier 1 Whitelisted Admin Template (Protected on local NVMe SSD)">
+          <ShieldCheck className="w-3 h-3 text-blue-600" /> Tier 1 Whitelist
+        </span>
+      );
+    }
+    if (f.is_offloaded) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200" title="Cold storage asset offloaded to S3 bucket">
+          <Archive className="w-3 h-3 text-indigo-600" /> Tier 3 S3 Offloaded
+        </span>
+      );
+    }
+    if (f.is_in_cart && settings.protect_active_carts) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-50 text-sky-700 border border-sky-200" title="Item is currently held in an active cart and shielded from Tier 5 purge">
+          <ShoppingCart className="w-3 h-3 text-sky-600" /> In Active Cart (Shielded)
+        </span>
+      );
+    }
+    if (f.is_saved) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200" title="Design saved in customer account (My Designs)">
+          <Bookmark className="w-3 h-3 text-purple-600" /> Customer Saved Design
+        </span>
+      );
+    }
+    if (f.has_order) {
+      if (f.is_aged) {
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200" title="Completed WooCommerce customer order older than retention period; ready for S3 cold offload">
+            <Clock className="w-3 h-3 text-amber-600" /> Aged (Tier 3 Candidate)
+          </span>
+        );
+      }
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200" title="Active WooCommerce customer order within hot local retention window">
+          <Flame className="w-3 h-3 text-emerald-600" /> Tier 2 Active Order
+        </span>
+      );
+    }
+    if (f.is_draft && f.age_days >= (settings.abandoned_drafts_days || 7)) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-300" title={f.is_in_cart ? "Held in cart but Active Cart Shield is OFF. Older than retention window and scheduled for Tier 5 purge." : "Unclaimed guest draft older than retention threshold"}>
+          <Trash2 className="w-3 h-3 text-slate-500" /> Tier 5 Abandoned Draft
+        </span>
+      );
+    }
+    if (f.is_in_cart) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200" title="Item is held in a cart, but Active Cart Shield is turned off. Within retention window, but will be purged when age exceeds threshold.">
+          <ShoppingCart className="w-3 h-3 text-amber-600" /> In Active Cart (Unshielded)
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-50 text-slate-600 border border-slate-200" title="Temporary guest canvas draft within draft retention period">
+        <Clock className="w-3 h-3 text-slate-400" /> Session Draft ({f.age_days}d)
+      </span>
+    );
+  };
+
+  const renderFolderActions = (f, isBusy, fullWidth = false) => {
+    return (
+      <div className={`flex items-center ${fullWidth ? 'w-full justify-stretch' : 'justify-end'} gap-2`}>
+        {/* Action: Offload */}
+        {!f.is_template && !f.is_offloaded && (
+          <button
+            onClick={() => handleOffloadSingleFolder(f.folder)}
+            disabled={isBusy}
+            className={`inline-flex items-center justify-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-50 ${fullWidth ? 'w-full py-2' : ''}`}
+          >
+            {isBusy ? (
+              <RefreshCw className="w-3 h-3 animate-spin" />
+            ) : (
+              <UploadCloud className="w-3 h-3" />
+            )}
+            Offload to S3
+          </button>
+        )}
+
+        {/* Action: Restore */}
+        {f.is_offloaded && (
+          <button
+            onClick={() => handleRestoreSingleFolder(f.folder)}
+            disabled={isBusy}
+            title={settings.delete_remote_on_restore ? "Restores files to local NVMe SSD and cleans up S3 copy" : "Restores files to local NVMe SSD and keeps S3 backup"}
+            className={`inline-flex items-center justify-center gap-1 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-50 ${fullWidth ? 'w-full py-2' : ''}`}
+          >
+            {isBusy ? (
+              <RefreshCw className="w-3 h-3 animate-spin" />
+            ) : (
+              <Download className="w-3 h-3" />
+            )}
+            Restore Back to Local
+          </button>
+        )}
+
+        {/* Protected Tier 1 Whitelist - Always Local */}
+        {f.is_template && (
+          <span className={`inline-flex items-center justify-center gap-1 px-2.5 py-1 bg-slate-50 text-slate-500 border border-slate-200 rounded-lg text-xs font-medium ${fullWidth ? 'w-full py-2' : ''}`}>
+            <ShieldCheck className="w-3.5 h-3.5 text-blue-600" /> Protected Local
+          </span>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="bg-slate-50 min-h-screen text-slate-800 p-2 sm:p-6 font-sans">
       {/* Top Hero Banner */}
@@ -644,7 +756,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.0.21'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.0.22'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">
@@ -918,14 +1030,14 @@ export default function App() {
                   </p>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl text-xs font-semibold text-slate-700">
-                    <span>Batch:</span>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                  <div className="flex items-center justify-between sm:justify-start gap-1.5 bg-slate-100 p-1 rounded-xl text-xs font-semibold text-slate-700">
+                    <span className="px-1 text-slate-500">Batch:</span>
                     {[1, 3, 5, 10].map((n) => (
                       <button
                         key={n}
                         onClick={() => setBatchCount(n)}
-                        className={`px-2.5 py-1 rounded-lg transition ${
+                        className={`flex-1 sm:flex-initial px-2.5 py-1 rounded-lg transition text-center ${
                           batchCount === n ? 'bg-white text-indigo-700 shadow-sm' : 'hover:text-indigo-600'
                         }`}
                       >
@@ -937,7 +1049,7 @@ export default function App() {
                   <button
                     onClick={() => handleTestBatchOffload(batchCount)}
                     disabled={batchRunning}
-                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold shadow-sm transition text-xs sm:text-sm cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold shadow-sm transition text-xs sm:text-sm cursor-pointer disabled:opacity-50 whitespace-nowrap"
                   >
                     {batchRunning ? (
                       <RefreshCw className="w-4 h-4 animate-spin" />
@@ -953,17 +1065,20 @@ export default function App() {
               <div className="mt-6">
                 <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-4">
                   {/* Filters */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400 mr-1">
                       Filter:
                     </span>
                     {[
                       { key: 'all', label: 'All Folders' },
                       { key: 'templates', label: 'Tier 1 Templates' },
-                      { key: 'active', label: `Tier 2 Active (< ${settings.cold_retention_days || 14}d)` },
-                      { key: 'offloaded', label: 'Tier 3 Offloaded' },
+                      { key: 'active', label: `Tier 2 Active Orders (< ${settings.cold_retention_days || 14}d)` },
                       { key: 'aged', label: `Tier 3 Candidates (> ${settings.cold_retention_days || 14}d)` },
+                      { key: 'offloaded', label: 'Tier 3 Offloaded' },
                       { key: 'drafts', label: `Tier 5 Drafts (> ${settings.abandoned_drafts_days || 7}d)` },
+                      { key: 'cart', label: '🛒 In Active Cart' },
+                      { key: 'saved', label: '💾 Customer Saved' },
+                      { key: 'orders', label: '📦 Paid Orders' },
                     ].map((f) => (
                       <button
                         key={f.key}
@@ -972,9 +1087,9 @@ export default function App() {
                           setExplorerPage(0);
                           fetchExplorerFolders(f.key, false, 0, explorerSearch);
                         }}
-                        className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap ${
                           explorerFilter === f.key
-                            ? 'bg-slate-900 text-white'
+                            ? 'bg-slate-900 text-white shadow-xs'
                             : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                         }`}
                       >
@@ -984,9 +1099,9 @@ export default function App() {
                   </div>
 
                   {/* Search and Pagination Controls */}
-                  <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto justify-between lg:justify-end">
+                  <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto justify-between lg:justify-end">
                     {/* Search box */}
-                    <div className="relative">
+                    <div className="relative flex-1 sm:flex-initial">
                       <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                       <input
                         type="text"
@@ -999,16 +1114,19 @@ export default function App() {
                             fetchExplorerFolders(explorerFilter, false, 0, e.target.value);
                           }
                         }}
-                        className="pl-8 pr-3 py-1 bg-slate-100 hover:bg-slate-200/70 focus:bg-white focus:ring-2 focus:ring-indigo-500 rounded-lg text-xs text-slate-800 placeholder-slate-400 transition outline-none w-40 sm:w-48"
+                        className="pl-8 pr-3 py-1 bg-slate-100 hover:bg-slate-200/70 focus:bg-white focus:ring-2 focus:ring-indigo-500 rounded-lg text-xs text-slate-800 placeholder-slate-400 transition outline-none w-full sm:w-48"
                       />
                     </div>
 
                     {/* Pagination & Count */}
                     <div className="flex items-center gap-2 text-xs text-slate-500">
-                      <span>
+                      <span className="hidden sm:inline">
                         {foldersTotal > 0
                           ? `Showing ${explorerPage * PAGE_SIZE + 1}–${Math.min((explorerPage + 1) * PAGE_SIZE, foldersTotal)} of ${foldersTotal}`
                           : 'Showing 0 folders'}
+                      </span>
+                      <span className="inline sm:hidden font-medium">
+                        {foldersTotal > 0 ? `${explorerPage * PAGE_SIZE + 1}–${Math.min((explorerPage + 1) * PAGE_SIZE, foldersTotal)} / ${foldersTotal}` : '0'}
                       </span>
 
                       <div className="flex items-center gap-1 border-l border-slate-200 pl-2">
@@ -1055,139 +1173,113 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Table */}
+                {/* Responsive Table / Card Container */}
                 <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs bg-white">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse text-xs sm:text-sm">
-                      <thead>
-                        <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider font-semibold">
-                          <th className="py-3 px-4">Design Folder Key</th>
-                          <th className="py-3 px-4">Storage Status</th>
-                          <th className="py-3 px-4">Age / Modified</th>
-                          <th className="py-3 px-4">Local Files / Size</th>
-                          <th className="py-3 px-4 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {folders.length === 0 ? (
-                          <tr>
-                            <td colSpan={5} className="py-8 text-center text-slate-400">
-                              {explorerLoading ? (
-                                <div className="flex items-center justify-center gap-2">
-                                  <RefreshCw className="w-4 h-4 animate-spin text-indigo-500" />
-                                  <span>Scanning design directory...</span>
+                  {folders.length === 0 ? (
+                    <div className="py-12 px-4 text-center text-slate-400">
+                      {explorerLoading ? (
+                        <div className="flex items-center justify-center gap-2">
+                          <RefreshCw className="w-4 h-4 animate-spin text-indigo-500" />
+                          <span>Scanning design directory...</span>
+                        </div>
+                      ) : explorerError ? (
+                        <div className="text-rose-500 font-medium">{explorerError}</div>
+                      ) : (
+                        'No design folders found matching this filter.'
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      {/* Mobile Card List View (Visible on < md screens) */}
+                      <div className="block md:hidden divide-y divide-slate-100">
+                        {folders.map((f) => {
+                          const isBusy = operatingFolder === f.folder;
+                          return (
+                            <div key={f.folder} className="p-4 space-y-3 hover:bg-slate-50/70 transition">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <Folder className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" />
+                                  <span className="font-mono text-xs font-semibold text-slate-800 break-all select-all leading-tight">
+                                    {f.folder}
+                                  </span>
                                 </div>
-                              ) : explorerError ? (
-                                <div className="text-rose-500 font-medium">{explorerError}</div>
-                              ) : (
-                                'No design folders found matching this filter.'
-                              )}
-                            </td>
-                          </tr>
-                        ) : (
-                          folders.map((f) => {
-                            const isBusy = operatingFolder === f.folder;
-                            return (
-                              <tr key={f.folder} className="hover:bg-slate-50/80 transition">
-                                <td className="py-3 px-4 font-mono font-medium text-slate-800">
-                                  <div className="flex items-center gap-2">
-                                    <Folder className="w-4 h-4 text-slate-400 flex-shrink-0" />
-                                    <span className="truncate max-w-[200px] sm:max-w-xs">{f.folder}</span>
-                                  </div>
-                                </td>
+                              </div>
 
-                                <td className="py-3 px-4">
-                                  {f.is_template ? (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                                      <ShieldCheck className="w-3 h-3 text-blue-600" /> Tier 1 Whitelist
-                                    </span>
-                                  ) : f.is_offloaded ? (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                      <Archive className="w-3 h-3 text-indigo-600" /> Tier 3 S3 Offloaded
-                                    </span>
-                                  ) : f.is_in_cart && settings.protect_active_carts ? (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-50 text-sky-700 border border-sky-200" title="Item is currently held in an active cart and shielded from Tier 5 purge">
-                                      <ShoppingCart className="w-3 h-3 text-sky-600" /> In Active Cart (Shielded)
-                                    </span>
-                                  ) : f.is_draft && f.age_days >= (settings.abandoned_drafts_days || 7) ? (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-300" title={f.is_in_cart ? "Held in cart but Active Cart Shield is OFF. Older than retention window and scheduled for Tier 5 purge." : "Unclaimed guest draft older than retention threshold"}>
-                                      <Trash2 className="w-3 h-3 text-slate-500" /> Tier 5 Abandoned Draft
-                                    </span>
-                                  ) : f.is_in_cart ? (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200" title="Item is held in a cart, but Active Cart Shield is turned off. Within retention window, but will be purged when age exceeds threshold.">
-                                      <ShoppingCart className="w-3 h-3 text-amber-600" /> In Active Cart (Unshielded)
-                                    </span>
-                                  ) : f.is_aged ? (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                                      <Clock className="w-3 h-3 text-amber-600" /> Aged (Tier 3 Candidate)
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                      <Flame className="w-3 h-3 text-emerald-600" /> Tier 2 Active Local SSD
-                                    </span>
-                                  )}
-                                </td>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs text-slate-400 font-medium">Status:</span>
+                                <div>{renderFolderBadge(f)}</div>
+                              </div>
 
-                                <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
-                                  <div>{f.modified_date}</div>
-                                  <span className="text-xs text-slate-400">{f.age_days} days ago</span>
-                                </td>
+                              <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                                <div>
+                                  <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Modified</span>
+                                  <span className="text-slate-700 font-medium">{f.modified_date}</span>
+                                  <span className="text-slate-400 block text-[11px]">{f.age_days}d ago</span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Local Storage</span>
+                                  <span className="text-slate-700 font-semibold">{f.size_formatted}</span>
+                                  <span className="text-slate-400 block text-[11px]">({f.files_count} files)</span>
+                                </div>
+                              </div>
 
-                                <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
-                                  <span className="font-semibold text-slate-700">{f.size_formatted}</span>
-                                  <span className="text-xs text-slate-400 ml-1.5">({f.files_count} files)</span>
-                                </td>
+                              <div className="pt-1">
+                                {renderFolderActions(f, isBusy, true)}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
 
-                                <td className="py-3 px-4 text-right whitespace-nowrap">
-                                  <div className="flex items-center justify-end gap-2">
-                                    {/* Action: Offload */}
-                                    {!f.is_template && !f.is_offloaded && (
-                                      <button
-                                        onClick={() => handleOffloadSingleFolder(f.folder)}
-                                        disabled={isBusy}
-                                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-semibold transition cursor-pointer"
-                                      >
-                                        {isBusy ? (
-                                          <RefreshCw className="w-3 h-3 animate-spin" />
-                                        ) : (
-                                          <UploadCloud className="w-3 h-3" />
-                                        )}
-                                        Offload to S3
-                                      </button>
-                                    )}
+                      {/* Desktop Tabular View (Visible on >= md screens) */}
+                      <div className="hidden md:block overflow-x-auto">
+                        <table className="w-full text-left border-collapse text-xs sm:text-sm">
+                          <thead>
+                            <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider font-semibold">
+                              <th className="py-3 px-4">Design Folder Key</th>
+                              <th className="py-3 px-4">Storage Status</th>
+                              <th className="py-3 px-4">Age / Modified</th>
+                              <th className="py-3 px-4">Local Files / Size</th>
+                              <th className="py-3 px-4 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {folders.map((f) => {
+                              const isBusy = operatingFolder === f.folder;
+                              return (
+                                <tr key={f.folder} className="hover:bg-slate-50/80 transition">
+                                  <td className="py-3 px-4 font-mono font-medium text-slate-800">
+                                    <div className="flex items-center gap-2">
+                                      <Folder className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                                      <span className="truncate max-w-[200px] sm:max-w-xs">{f.folder}</span>
+                                    </div>
+                                  </td>
 
-                                    {/* Action: Restore */}
-                                    {f.is_offloaded && (
-                                      <button
-                                        onClick={() => handleRestoreSingleFolder(f.folder)}
-                                        disabled={isBusy}
-                                        title={settings.delete_remote_on_restore ? "Restores files to local NVMe SSD and cleans up S3 copy" : "Restores files to local NVMe SSD and keeps S3 backup"}
-                                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-semibold transition cursor-pointer"
-                                      >
-                                        {isBusy ? (
-                                          <RefreshCw className="w-3 h-3 animate-spin" />
-                                        ) : (
-                                          <Download className="w-3 h-3" />
-                                        )}
-                                        Restore Back to Local
-                                      </button>
-                                    )}
+                                  <td className="py-3 px-4">
+                                    {renderFolderBadge(f)}
+                                  </td>
 
-                                    {/* Protected Tier 1 Whitelist - Always Local */}
-                                    {f.is_template && (
-                                      <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-50 text-slate-500 border border-slate-200 rounded-lg text-xs font-medium">
-                                        <ShieldCheck className="w-3.5 h-3.5 text-blue-600" /> Protected Local
-                                      </span>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
+                                  <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                                    <div>{f.modified_date}</div>
+                                    <span className="text-xs text-slate-400">{f.age_days} days ago</span>
+                                  </td>
+
+                                  <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                                    <span className="font-semibold text-slate-700">{f.size_formatted}</span>
+                                    <span className="text-xs text-slate-400 ml-1.5">({f.files_count} files)</span>
+                                  </td>
+
+                                  <td className="py-3 px-4 text-right whitespace-nowrap">
+                                    {renderFolderActions(f, isBusy, false)}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
