@@ -594,18 +594,24 @@ export default function App() {
         <div className="absolute right-0 top-0 translate-x-10 -translate-y-10 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 relative z-10">
           <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-white flex items-center gap-2.5">
-                <Cloud className="w-6 h-6 text-indigo-400" /> NBDesigner S3 Offload
-              </h1>
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2.5">
+                <Cloud className="w-6 h-6 text-indigo-400 flex-shrink-0" />
+                <span
+                  className="text-xl sm:text-2xl font-extrabold tracking-tight text-white drop-shadow-xs"
+                  style={{ color: '#ffffff' }}
+                >
+                  NBDesigner S3 Offload
+                </span>
+              </div>
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/20 text-indigo-200 border border-indigo-400/20">
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.0.14'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.0.15'} • PHP 8.3 & HPOS
               </span>
             </div>
-            <p className="text-indigo-200/80 text-xs mt-1 max-w-2xl leading-normal">
+            <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">
               Tiered storage lifecycle: Whitelist protected admin templates on NVMe SSD, offload aged guest designs to S3, and dual-sync fonts.
             </p>
           </div>
@@ -917,9 +923,11 @@ export default function App() {
                     </span>
                     {[
                       { key: 'all', label: 'All Folders' },
-                      { key: 'aged', label: 'Aged (> 14d)' },
-                      { key: 'offloaded', label: 'Offloaded to S3' },
-                      { key: 'templates', label: 'Whitelisted Templates' },
+                      { key: 'templates', label: 'Tier 1 Templates' },
+                      { key: 'active', label: 'Tier 2 Active (< 14d)' },
+                      { key: 'offloaded', label: 'Tier 3 Offloaded' },
+                      { key: 'aged', label: 'Tier 3 Candidates (> 14d)' },
+                      { key: 'drafts', label: 'Tier 5 Drafts (> 7d)' },
                     ].map((f) => (
                       <button
                         key={f.key}
@@ -1060,6 +1068,10 @@ export default function App() {
                                   ) : f.is_offloaded ? (
                                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
                                       <Archive className="w-3 h-3 text-indigo-600" /> Tier 3 S3 Offloaded
+                                    </span>
+                                  ) : f.is_draft && f.age_days >= 7 ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-300">
+                                      <Trash2 className="w-3 h-3 text-slate-500" /> Tier 5 Abandoned Draft
                                     </span>
                                   ) : f.is_aged ? (
                                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
@@ -1314,20 +1326,28 @@ export default function App() {
             </div>
 
             {/* Tier 1 Whitelist Card */}
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-5">
+            <div className="bg-gradient-to-r from-blue-50/90 to-blue-100/40 border border-blue-200 rounded-2xl p-5 shadow-xs">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-start gap-3.5">
                   <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
                     <ShieldCheck className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold text-blue-950">
-                      Tier 1: Admin Template Protection Whitelist (Local NVMe SSD)
-                    </h3>
-                    <p className="text-xs text-blue-800 mt-1 leading-relaxed">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-blue-600 text-white shadow-xs tracking-wider">
+                        TIER 1
+                      </span>
+                      <h3 className="text-sm font-bold text-blue-950">
+                        Admin Template Protection Whitelist (Local NVMe SSD)
+                      </h3>
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                        Permanent Whitelist
+                      </span>
+                    </div>
+                    <p className="text-xs text-blue-900/90 mt-1.5 leading-relaxed">
                       All design folders registered in <code>wp_nbdesigner_templates</code> are protected. They are never moved or deleted by background sweeps.
                     </p>
-                    <p className="text-xs text-blue-700 mt-1">
+                    <p className="text-xs text-blue-800/80 mt-1">
                       If you convert older offloaded guest orders into admin templates, click Restore below to pull their assets back from S3.
                     </p>
                   </div>
@@ -1416,22 +1436,25 @@ export default function App() {
             </div>
 
             {/* Tier 2 Hot Active Orders Card */}
-            <div className="bg-gradient-to-r from-emerald-50/80 to-teal-50/50 border border-emerald-200 rounded-2xl p-5">
+            <div className="bg-gradient-to-r from-emerald-50/90 to-emerald-100/40 border border-emerald-200 rounded-2xl p-5 shadow-xs">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-start gap-3.5">
                   <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
                     <Flame className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-600 text-white shadow-xs tracking-wider">
+                        TIER 2
+                      </span>
                       <h3 className="text-sm font-bold text-emerald-950">
-                        Tier 2: Hot Active Orders (Local NVMe SSD Fast Fulfillment)
+                        Hot Active Orders (Local NVMe SSD Fast Fulfillment)
                       </h3>
                       <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
                         0 to {settings.cold_retention_days} Days
                       </span>
                     </div>
-                    <p className="text-xs text-emerald-900/90 mt-1 leading-relaxed">
+                    <p className="text-xs text-emerald-900/90 mt-1.5 leading-relaxed">
                       All customer designs for active production and orders younger than <strong>{settings.cold_retention_days} days</strong> are kept 100% on fast local NVMe SSD.
                     </p>
                     <p className="text-xs text-emerald-800/80 mt-1">
@@ -1450,22 +1473,25 @@ export default function App() {
             </div>
 
             {/* Tier 3 Cold Order Offload Setting */}
-            <div className="border border-indigo-200 bg-gradient-to-r from-indigo-50/50 to-slate-50/50 rounded-2xl p-5 space-y-4">
+            <div className="border border-indigo-200 bg-gradient-to-r from-indigo-50/90 to-indigo-100/40 rounded-2xl p-5 space-y-4 shadow-xs">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-start gap-3.5">
                   <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
                     <Archive className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-bold text-slate-900">
-                        Tier 3: Cold Storage Offload (S3 Archiving & Smart Purge)
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-indigo-600 text-white shadow-xs tracking-wider">
+                        TIER 3
+                      </span>
+                      <h3 className="text-sm font-bold text-indigo-950">
+                        Cold Storage Offload (S3 Archiving & Smart Purge)
                       </h3>
                       <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
                         &gt; {settings.cold_retention_days} Days
                       </span>
                     </div>
-                    <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                    <p className="text-xs text-indigo-900/80 mt-1.5 leading-relaxed">
                       Completed order designs older than {settings.cold_retention_days} days are copied to S3, verified via MD5/ETag checksums, and local disk copies purged to reclaim SSD storage.
                     </p>
                   </div>
@@ -1555,22 +1581,25 @@ export default function App() {
             </div>
 
             {/* Tier 4 Font Dual-Sync Card */}
-            <div className="bg-gradient-to-r from-purple-50/80 to-indigo-50/60 border border-purple-200 rounded-2xl p-5">
+            <div className="bg-gradient-to-r from-purple-50/90 to-purple-100/40 border border-purple-200 rounded-2xl p-5 shadow-xs">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-start gap-3.5">
                   <div className="w-10 h-10 rounded-xl bg-purple-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
                     <Type className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-purple-600 text-white shadow-xs tracking-wider">
+                        TIER 4
+                      </span>
                       <h3 className="text-sm font-bold text-purple-950">
-                        Tier 4: Font Dual-Sync Engine (Local NVMe SSD + CDN Edge)
+                        Font Dual-Sync Engine (Local NVMe SSD + CDN Edge)
                       </h3>
                       <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
-                        Dual-Storage
+                        Dual-Storage Engine
                       </span>
                     </div>
-                    <p className="text-xs text-purple-900/90 mt-1 leading-relaxed">
+                    <p className="text-xs text-purple-900/90 mt-1.5 leading-relaxed">
                       Typography requires a hybrid dual-sync architecture: Fonts remain on local NVMe SSD for TCPDF high-resolution vector PDF rendering, while simultaneously syncing to S3 / CloudFront with 30-day immutable caching (<code>max-age=2592000</code>) for instant browser canvas rendering.
                     </p>
                     <p className="text-xs text-purple-800/80 mt-1">
@@ -1591,22 +1620,25 @@ export default function App() {
             </div>
 
             {/* Tier 5 Draft Garbage Collection */}
-            <div className="border border-slate-200 bg-slate-50/80 rounded-2xl p-5 space-y-4">
+            <div className="border border-slate-300 bg-gradient-to-r from-slate-50 to-slate-100/70 rounded-2xl p-5 space-y-4 shadow-xs">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-start gap-3.5">
-                  <div className="w-10 h-10 rounded-xl bg-slate-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                  <div className="w-10 h-10 rounded-xl bg-slate-700 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
                     <Trash2 className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-slate-700 text-white shadow-xs tracking-wider">
+                        TIER 5
+                      </span>
                       <h3 className="text-sm font-bold text-slate-900">
-                        Tier 5: Garbage Collect Abandoned Guest Drafts & Temporary Uploads
+                        Garbage Collect Abandoned Guest Drafts & Temporary Uploads
                       </h3>
-                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 border border-slate-300">
                         &gt; {settings.abandoned_drafts_days} Days
                       </span>
                     </div>
-                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
                       Cleans up orphan unpurchased session uploads and temporary files older than {settings.abandoned_drafts_days} days to keep SSD disks lean.
                     </p>
                   </div>

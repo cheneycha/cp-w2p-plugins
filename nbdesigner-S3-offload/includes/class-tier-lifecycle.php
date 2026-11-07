@@ -419,9 +419,29 @@ class NBD_S3_Tier_Lifecycle {
 
         $registry_lookup = self::get_offloaded_registry();
 
-        $settings  = NBD_S3_Settings::get_all();
-        $retention = (int) ( $settings['cold_retention_days'] ?? 14 );
-        $cutoff    = time() - ( $retention * DAY_IN_SECONDS );
+        $settings     = NBD_S3_Settings::get_all();
+        $retention    = (int) ( $settings['cold_retention_days'] ?? 14 );
+        $cutoff       = time() - ( $retention * DAY_IN_SECONDS );
+        $draft_days   = (int) ( $settings['abandoned_drafts_days'] ?? 7 );
+        $draft_cutoff = time() - ( $draft_days * DAY_IN_SECONDS );
+
+        $all_order_folders = array();
+        $all_saved_folders = array();
+        if ( 'drafts' === $filter ) {
+            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$order_meta_table}'" ) === $order_meta_table ) {
+                $order_cols = $wpdb->get_col( "SELECT DISTINCT meta_value FROM {$order_meta_table} WHERE meta_key = '_nbd' OR meta_key = '_nbd_item_key'" );
+                if ( ! empty( $order_cols ) ) {
+                    $all_order_folders = array_flip( $order_cols );
+                }
+            }
+            $mydesigns_table = $wpdb->prefix . 'nbdesigner_mydesigns';
+            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$mydesigns_table}'" ) === $mydesigns_table ) {
+                $saved_cols = $wpdb->get_col( "SELECT DISTINCT folder FROM {$mydesigns_table} WHERE folder IS NOT NULL AND folder != ''" );
+                if ( ! empty( $saved_cols ) ) {
+                    $all_saved_folders = array_flip( $saved_cols );
+                }
+            }
+        }
 
         $matched_items = array();
 
@@ -441,6 +461,9 @@ class NBD_S3_Tier_Lifecycle {
             if ( 'templates' === $filter && ! $is_tpl ) {
                 continue;
             }
+            if ( 'active' === $filter && ( $is_offloaded || $is_tpl || $is_aged ) ) {
+                continue;
+            }
             if ( 'aged' === $filter && ( ! $is_aged || $is_tpl ) ) {
                 continue;
             }
@@ -449,6 +472,11 @@ class NBD_S3_Tier_Lifecycle {
             }
             if ( 'local' === $filter && $is_offloaded ) {
                 continue;
+            }
+            if ( 'drafts' === $filter ) {
+                if ( $is_tpl || $mtime >= $draft_cutoff || isset( $all_order_folders[ $folder ] ) || isset( $all_saved_folders[ $folder ] ) ) {
+                    continue;
+                }
             }
 
             $matched_items[] = array(
@@ -496,11 +524,29 @@ class NBD_S3_Tier_Lifecycle {
 
             $mtime = $item['mtime'];
 
+            // Fast draft check for the 25 paged items
+            $is_draft = false;
+            if ( ! $item['is_template'] && ! $is_offloaded ) {
+                if ( 'drafts' === $filter ) {
+                    $is_draft = true;
+                } else {
+                    $has_order = $wpdb->get_var( $wpdb->prepare( "SELECT order_item_id FROM {$order_meta_table} WHERE (meta_key = '_nbd' OR meta_key = '_nbd_item_key') AND meta_value = %s LIMIT 1", $folder ) );
+                    if ( ! $has_order ) {
+                        $mydesigns_table = $wpdb->prefix . 'nbdesigner_mydesigns';
+                        $has_saved = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$mydesigns_table} WHERE folder = %s LIMIT 1", $folder ) );
+                        if ( ! $has_saved ) {
+                            $is_draft = true;
+                        }
+                    }
+                }
+            }
+
             $folders[] = array(
                 'folder'         => $folder,
                 'is_template'    => $item['is_template'],
                 'is_aged'        => $item['is_aged'],
                 'is_offloaded'   => $is_offloaded,
+                'is_draft'       => $is_draft,
                 'files_count'    => $count,
                 'size_bytes'     => $bytes,
                 'size_formatted' => size_format( $bytes ),
