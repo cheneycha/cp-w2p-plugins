@@ -599,7 +599,7 @@ export default function App() {
                 <Sparkles className="w-3.5 h-3.5 text-indigo-300" /> Web-to-Print Tiered Storage Engine
               </span>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.0.6'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.0.7'} • PHP 8.3 & HPOS
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-3">
@@ -1101,7 +1101,7 @@ export default function App() {
                                     )}
 
                                     {/* Action: Restore */}
-                                    {(f.is_offloaded || f.is_template) && (
+                                    {f.is_offloaded && (
                                       <button
                                         onClick={() => handleRestoreSingleFolder(f.folder)}
                                         disabled={isBusy}
@@ -1114,6 +1114,13 @@ export default function App() {
                                         )}
                                         Restore Back to Local
                                       </button>
+                                    )}
+
+                                    {/* Protected Tier 1 Whitelist - Always Local */}
+                                    {f.is_template && (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-50 text-slate-500 border border-slate-200 rounded-lg text-xs font-medium">
+                                        <ShieldCheck className="w-3.5 h-3.5 text-blue-600" /> Protected Local
+                                      </span>
                                     )}
                                   </div>
                                 </td>
