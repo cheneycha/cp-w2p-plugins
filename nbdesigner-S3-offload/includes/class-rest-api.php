@@ -314,9 +314,13 @@ class NBD_S3_REST_API {
 
         $res = NBD_S3_Tier_Lifecycle::hydrate_design_folder( $folder );
         if ( $res ) {
+            $settings = NBD_S3_Settings::get_all();
+            $msg      = ! empty( $settings['delete_remote_on_restore'] )
+                ? sprintf( 'Folder "%s" successfully restored to local NVMe storage and cleaned up from S3.', $folder )
+                : sprintf( 'Folder "%s" successfully downloaded and restored back to local NVMe storage.', $folder );
             return new \WP_REST_Response( array(
                 'success' => true,
-                'message' => sprintf( 'Folder "%s" successfully downloaded and restored back to local NVMe storage.', $folder ),
+                'message' => $msg,
             ), 200 );
         }
 

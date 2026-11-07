@@ -36,6 +36,7 @@ class NBD_S3_Settings {
             'abandoned_drafts_days'      => 7,
             'protect_active_carts'       => true, // Active Cart Protection Shield: immune to purge if in active cart
             'default_object_acl'         => 'public-read', // Object ACL: 'public-read' (DigitalOcean Spaces/CDN), 'private', or 'none' (AWS Bucket-Owner Enforced)
+            'delete_remote_on_restore'   => true, // Delete remote S3 copy after verified local restore (frees S3 storage)
             'font_cache_max_age'         => 2592000, // 30 days
             // Safety & Sync Master Controls:
             'sync_paused'                => true, // Master Kill-Switch: Paused by default on activation
@@ -132,6 +133,7 @@ class NBD_S3_Settings {
             'abandoned_drafts_days'      => max( 1, min( 180, absint( $data['abandoned_drafts_days'] ?? $current['abandoned_drafts_days'] ) ) ),
             'protect_active_carts'       => ! empty( $data['protect_active_carts'] ),
             'default_object_acl'         => in_array( $data['default_object_acl'] ?? '', array( 'public-read', 'private', 'none' ), true ) ? $data['default_object_acl'] : 'public-read',
+            'delete_remote_on_restore'   => ! empty( $data['delete_remote_on_restore'] ),
             'font_cache_max_age'         => max( 3600, absint( $data['font_cache_max_age'] ?? $current['font_cache_max_age'] ) ),
             'sync_paused'                => ! empty( $data['sync_paused'] ),
             'sync_schedule_time'         => sanitize_text_field( $data['sync_schedule_time'] ?? $current['sync_schedule_time'] ?? '03:00' ),

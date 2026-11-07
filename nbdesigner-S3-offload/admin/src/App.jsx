@@ -160,6 +160,7 @@ export default function App() {
     enable_saved_design_offload: false,
     cold_retention_days: 14,
     purge_mode: 'smart',
+    delete_remote_on_restore: true,
     cleanup_abandoned_drafts: true,
     abandoned_drafts_days: 7,
     protect_active_carts: true,
@@ -643,7 +644,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.0.19'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.0.20'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">
@@ -1160,6 +1161,7 @@ export default function App() {
                                       <button
                                         onClick={() => handleRestoreSingleFolder(f.folder)}
                                         disabled={isBusy}
+                                        title={settings.delete_remote_on_restore ? "Restores files to local NVMe SSD and cleans up S3 copy" : "Restores files to local NVMe SSD and keeps S3 backup"}
                                         className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-semibold transition cursor-pointer"
                                       >
                                         {isBusy ? (
@@ -1704,6 +1706,38 @@ export default function App() {
                         </p>
                       </label>
                     </div>
+                  </div>
+
+                  {/* Delete Remote S3 Copy on Restore Toggle */}
+                  <div className="mt-4 bg-white/80 p-4 rounded-xl border border-indigo-100 flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5">
+                        <ToggleSwitch
+                          checked={settings.delete_remote_on_restore}
+                          onChange={(val) => setSettings({ ...settings, delete_remote_on_restore: val })}
+                          activeColor="bg-indigo-600"
+                          ariaLabel="Delete Remote S3 Copy on Local Restore"
+                        />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-slate-800">
+                            Delete Remote S3 Copy on Local Restore
+                          </span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            Default Active
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                          When clicking <strong>&quot;Restore Back to Local&quot;</strong>, automatically removes the remote files from S3 after 100% verified download to local SSD. Prevents duplicate storage costs and keeps cloud storage clean.
+                        </p>
+                      </div>
+                    </div>
+                    <span className={`text-xs font-bold px-2.5 py-1 rounded-full flex-shrink-0 ${
+                      settings.delete_remote_on_restore ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-200 text-slate-600'
+                    }`}>
+                      {settings.delete_remote_on_restore ? 'Auto-Remove S3' : 'Keep S3 Backup'}
+                    </span>
                   </div>
                 </div>
               )}

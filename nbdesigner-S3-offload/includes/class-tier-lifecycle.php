@@ -204,6 +204,9 @@ class NBD_S3_Tier_Lifecycle {
             wp_mkdir_p( $local_dir );
         }
 
+        $downloaded_keys = array();
+        $download_failed = 0;
+
         foreach ( $objects as $obj ) {
             $s3_key   = $obj['key'];
             $rel_path = substr( $s3_key, strlen( $prefix ) );
@@ -213,10 +216,12 @@ class NBD_S3_Tier_Lifecycle {
 
             $target_file = $local_dir . '/' . $rel_path;
             $res = $client->get_object( $s3_key, $target_file );
-            if ( is_wp_error( $res ) ) {
-                // Log and continue attempting remaining files
+            if ( is_wp_error( $res ) || ! file_exists( $target_file ) ) {
+                $download_failed++;
                 continue;
             }
+
+            $downloaded_keys[] = $s3_key;
 
             if ( ! empty( $obj['last_modified'] ) ) {
                 $file_ts = strtotime( (string) $obj['last_modified'] );
@@ -224,6 +229,24 @@ class NBD_S3_Tier_Lifecycle {
                     @touch( $target_file, $file_ts );
                 }
             }
+        }
+
+        if ( $download_failed > 0 || empty( $downloaded_keys ) ) {
+            NBD_S3_Logger::log( 'RESTORE_WARN', sprintf( 'Incomplete restoration for %s: %d files failed to download. S3 remote files preserved intact.', $item_key, $download_failed ), array( 'folder' => $item_key, 'failed' => $download_failed ), 'warning' );
+            return false;
+        }
+
+        // Safe S3 Remote Cleanup: Delete from S3 only if all files verified locally and toggle is active
+        $settings = NBD_S3_Settings::get_all();
+        $deleted_s3_count = 0;
+        if ( ! empty( $settings['delete_remote_on_restore'] ) ) {
+            foreach ( $downloaded_keys as $s3_key ) {
+                $del_res = $client->delete_object( $s3_key );
+                if ( ! is_wp_error( $del_res ) ) {
+                    $deleted_s3_count++;
+                }
+            }
+            NBD_S3_Logger::log( 'RESTORE_S3_PURGE', sprintf( 'Cleaned up %d remote S3 files for %s after successful local restoration.', $deleted_s3_count, $item_key ), array( 'folder' => $item_key, 'deleted_s3_files' => $deleted_s3_count ), 'info' );
         }
 
         delete_transient( 'nbd_s3_explorer_dirs_v2' );
