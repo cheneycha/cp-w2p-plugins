@@ -45,21 +45,26 @@ NBDesigner provides web-to-print design tools for WooCommerce:
 
 ## 4. Storage Tiering & Lifecycle Policy
 
-NBDesigner stores both templates and guest orders as sibling folders inside `wp-content/uploads/nbdesigner/designs/{folder}/`. The plugin implements a 4-tier lifecycle to optimize cost and performance:
+NBDesigner stores both templates and guest orders as sibling folders inside `wp-content/uploads/nbdesigner/designs/{folder}/`. The plugin implements a multi-tier lifecycle engine to optimize cost and performance:
 
 ```
 [ Tier 1: Local High-Speed NVMe Storage (Whitelist) ]
-  ├── Admin Templates (Active, read frequently by all shoppers)
+  └── Admin Templates (Active, read frequently by all shoppers, whitelisted from offload)
+
+[ Tier 2: Hot Active Orders (Local NVMe SSD Fast Fulfillment) ]
   └── Active Guest / Order Designs (Hot Phase: 0 - 14 days, in active print fulfillment)
 
-[ Tier 2: Cold Object Storage (S3 / Wasabi / B2 / R2) ]
-  └── Inactive Order Designs (Cold Phase: > 14-30 days silent, local copy deleted)
+[ Tier 3: Inactive / Cold Orders (Move to S3 & Delete Local Copy) ]
+  └── Archived Order Designs (> 14 days silent, local copy purged, hydrated on-demand)
 
-[ Tier 3: Global Edge CDN + S3 ]
-  └── Chinese Font Files (Cached in browser for 1 month via immutable headers)
+[ Tier 4: Font Dual-Sync & Global Edge CDN ]
+  └── Typography & Chinese Fonts (Local SSD for TCPDF + S3/CDN edge with 30d immutable caching)
 
-[ Tier 4: Garbage Collection ]
-  └── Abandoned Guest Sessions (No order / no account, purged after 7 days)
+[ Tier 5: Abandoned Drafts Garbage Collection ]
+  └── Unpurchased Guest Drafts (> 7 days, shielded by Active Cart Protection)
+
+[ Tier 6: Customer Saved Designs Lifecycle & Auto-Purge ]
+  └── Customer Saved Designs (6, 12, 18, 24 mo retention, warning banners, notification emails)
 ```
 
 ### Detailed Tier Rules:
@@ -100,8 +105,32 @@ NBDesigner stores both templates and guest orders as sibling folders inside `wp-
     4. Displays real-time sync progress (file count, progress bar, completion toast) in the React dashboard.
 
 #### Tier 5: Abandoned Drafts Cleanup
-- **Scope**: Folders in `designs/` older than 7 days that do not belong to `nbdesigner_templates`, `nbdesigner_mydesigns`, or any completed/processing WooCommerce order.
+- **Scope**: Folders in `designs/` older than 7 days (configurable: 1, 7, 30, 90, 180 days) that do not belong to `nbdesigner_templates`, `nbdesigner_mydesigns`, or any completed/processing WooCommerce order.
+- **Active Cart Protection Shield**: Immune to purge if the design key currently resides inside an active guest or logged-in WooCommerce cart session.
 - **Policy**: Automatically purged to eliminate phantom storage bloat.
+
+#### Tier 6: Customer Saved Designs Lifecycle & Auto-Purge Policy
+- **Scope**: Customer saved designs stored in database table `{$wpdb->prefix}nbdesigner_mydesigns` and physical folders under `designs/{folder}/`.
+- **Zero Core Edits Architecture**: 100% independent addon implementation hooking into standard WordPress/WooCommerce filters without modifying or hacking NBDesigner core code.
+- **Configurable Retention Window ($X$ Months)**:
+  - Presets: **6 Months** (180 days), **12 Months** (365 days, Default), **18 Months** (545 days), **24 Months** (730 days). Also accepts custom numeric day values up to 3650 days.
+  - Automatic scheduled daily sweep deletes designs exceeding the retention window.
+- **Customer Warning Window ($Y$ Days)**:
+  - Configurable threshold (default: 7 days, selectable: 1, 3, 7, 14, 30 days).
+  - When design age enters $X - Y$ days, customer is actively notified:
+    1. **Frontend Expiry Notice & Countdown Badges**: Hooked via `nb_before_show_design` to inject high-visibility banner warnings and per-item badges directly into the customer's "My Saved Designs" account page.
+    2. **Automated Warning Email**: Sends an advance alert email informing the customer of pending design expiration with a direct CTA link to view or purchase their design. Anti-duplicate tracking prevents repeat emails.
+- **Automated & Manual Purge Operations**:
+  - **Comprehensive Deletion**: Upon reaching retention age $X$:
+    1. Deletes the physical design folder from local NVMe SSD (`wp-content/uploads/nbdesigner/designs/{folder}`).
+    2. Deletes remote files from S3 bucket under `designs/{folder}/`.
+    3. Removes the design record from `{$wpdb->prefix}nbdesigner_mydesigns`.
+    4. Records an audit entry in the Activity Log (`SAVED_DESIGNS_PURGE`).
+    5. Dispatches a friendly purge notification email informing the customer that their saved design reached retention expiration and was removed, with a button inviting them to create a new project.
+  - **Dedicated Manual Purge Action**: Admin can trigger immediate on-demand sweep via **"Purge Expired Saved Designs Now"** in the Storage Stats & Sweeps dashboard tab or REST API (`POST /saved-designs/purge-now`).
+- **Loco Translate Full Compatibility**:
+  - All frontend notices, countdown badges, and email templates use standard WordPress gettext functions (`__()`, `_e()`, `_n()`, `esc_html__()`) mapped to domain `nbd-s3-offload` and indexed in `languages/nbd-s3-offload.pot`.
+  - Can be translated, customized, or rebranded directly inside Loco Translate without developer intervention.
 
 ---
 

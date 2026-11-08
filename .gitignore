@@ -7,6 +7,7 @@
 # 3. Whitelist specific plugin folders
 !/nbdesigner-S3-offload/
 !/web-to-print-online-designer/
+!*.md
 
 # 4. Standard local exclusions inside the whitelisted plugins
 **/node_modules/

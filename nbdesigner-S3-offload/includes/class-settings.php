@@ -40,7 +40,7 @@ class NBD_S3_Settings {
             'font_cache_max_age'         => 2592000, // 30 days
             // Customer Saved Designs Lifecycle Policy:
             'enable_saved_designs_lifecycle'   => false, // Master switch for Customer Saved Designs auto-purge
-            'saved_designs_retention_days'     => 90, // Purge customer saved designs after X days (default: 90 days)
+            'saved_designs_retention_days'     => 365, // Purge customer saved designs after X days (default: 365 days / 12 months)
             'saved_designs_warning_days'       => 7,  // Display warning & send email Y days before purge (default: 7 days)
             'saved_designs_send_warning_email' => true, // Dispatch warning email to customer Y days prior
             'saved_designs_send_purge_email'   => true, // Dispatch notification email when design is purged

@@ -81,7 +81,7 @@ const PRESETS = {
 
 const TIER_5_DAYS_PRESETS = [1, 7, 30, 90, 180];
 const TIER_3_DAYS_PRESETS = [1, 7, 14, 30, 90];
-const SAVED_DESIGNS_RETENTION_PRESETS = [14, 30, 60, 90, 180, 365];
+const SAVED_DESIGNS_RETENTION_PRESETS = [180, 365, 545, 730];
 const SAVED_DESIGNS_WARNING_PRESETS = [1, 3, 7, 14, 30];
 
 const getClosestPresetIndex = (val, presets, fallbackIdx = 0) => {
@@ -185,7 +185,7 @@ export default function App() {
     default_object_acl: 'public-read',
     font_cache_max_age: 2592000,
     enable_saved_designs_lifecycle: false,
-    saved_designs_retention_days: 90,
+    saved_designs_retention_days: 365,
     saved_designs_warning_days: 7,
     saved_designs_send_warning_email: true,
     saved_designs_send_purge_email: true,
@@ -899,7 +899,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.2.1'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.2.2'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">
@@ -2191,12 +2191,9 @@ export default function App() {
                       <h3 className="text-sm font-bold text-rose-950">
                         Customer Saved Designs Lifecycle &amp; Auto-Purge
                       </h3>
-                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
-                        Loco Translate Ready
-                      </span>
                     </div>
                     <p className="text-xs text-rose-900/90 mt-1.5 leading-relaxed">
-                      Automatically cleans up customer saved designs (<code>wp_nbdesigner_mydesigns</code>) older than {settings.saved_designs_retention_days || 90} days, displays frontend expiry notices with countdown badges in their account area, and dispatches automated customer warning &amp; purge notification emails.
+                      Automatically cleans up customer saved designs (<code>wp_nbdesigner_mydesigns</code>) older than {settings.saved_designs_retention_days || 365} days, displays frontend expiry notices with countdown badges in their account area, and dispatches automated customer warning &amp; purge notification emails.
                     </p>
                   </div>
                 </div>
@@ -2225,9 +2222,9 @@ export default function App() {
                       <div className="flex items-center gap-1.5">
                         <input
                           type="number"
-                          min="14"
-                          max="365"
-                          value={settings.saved_designs_retention_days || 90}
+                          min="30"
+                          max="3650"
+                          value={settings.saved_designs_retention_days || 365}
                           onChange={(e) => {
                             const val = Math.max(1, Math.min(3650, parseInt(e.target.value, 10) || 1));
                             setSettings({ ...settings, saved_designs_retention_days: val });
@@ -2235,14 +2232,17 @@ export default function App() {
                           className="w-16 px-2 py-0.5 text-xs font-bold text-center rounded-lg border border-slate-300 bg-white text-slate-800 shadow-2xs focus:ring-1 focus:ring-rose-500 focus:outline-none"
                         />
                         <span className="text-xs font-bold text-slate-600">Days</span>
+                        <span className="text-[11px] font-medium text-slate-400">
+                          (≈ {Math.round((settings.saved_designs_retention_days || 365) / 30.41)} mo)
+                        </span>
                       </div>
                     </div>
                     <input
                       type="range"
                       min="0"
-                      max="5"
+                      max="3"
                       step="1"
-                      value={getClosestPresetIndex(settings.saved_designs_retention_days, SAVED_DESIGNS_RETENTION_PRESETS, 3)}
+                      value={getClosestPresetIndex(settings.saved_designs_retention_days, SAVED_DESIGNS_RETENTION_PRESETS, 1)}
                       onChange={(e) => {
                         const idx = parseInt(e.target.value, 10);
                         setSettings({ ...settings, saved_designs_retention_days: SAVED_DESIGNS_RETENTION_PRESETS[idx] });
@@ -2250,16 +2250,34 @@ export default function App() {
                       className="w-full h-2 bg-rose-200 rounded-lg appearance-none cursor-pointer accent-rose-600"
                     />
                     <div className="flex justify-between text-xs text-slate-500 mt-1.5 select-none">
-                      {SAVED_DESIGNS_RETENTION_PRESETS.map((d) => (
-                        <button
-                          key={d}
-                          type="button"
-                          onClick={() => setSettings({ ...settings, saved_designs_retention_days: d })}
-                          className={`cursor-pointer hover:text-slate-800 transition ${settings.saved_designs_retention_days === d ? 'font-bold text-rose-700' : 'text-slate-400'}`}
-                        >
-                          {d === 90 ? `${d}d (Default)` : `${d}d`}
-                        </button>
-                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setSettings({ ...settings, saved_designs_retention_days: 180 })}
+                        className={`cursor-pointer hover:text-slate-800 transition ${settings.saved_designs_retention_days === 180 ? 'font-bold text-rose-700' : 'text-slate-400'}`}
+                      >
+                        6 Months (180d)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSettings({ ...settings, saved_designs_retention_days: 365 })}
+                        className={`cursor-pointer hover:text-slate-800 transition ${settings.saved_designs_retention_days === 365 ? 'font-bold text-rose-700' : 'text-slate-400'}`}
+                      >
+                        12 Months (Default / 365d)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSettings({ ...settings, saved_designs_retention_days: 545 })}
+                        className={`cursor-pointer hover:text-slate-800 transition ${settings.saved_designs_retention_days === 545 ? 'font-bold text-rose-700' : 'text-slate-400'}`}
+                      >
+                        18 Months (545d)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSettings({ ...settings, saved_designs_retention_days: 730 })}
+                        className={`cursor-pointer hover:text-slate-800 transition ${settings.saved_designs_retention_days === 730 ? 'font-bold text-rose-700' : 'text-slate-400'}`}
+                      >
+                        24 Months (730d)
+                      </button>
                     </div>
                   </div>
 
@@ -2351,11 +2369,6 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                  </div>
-
-                  {/* Loco Translate & Zero-Core-Edits Guarantee Box */}
-                  <div className="p-3 bg-rose-50/80 rounded-lg border border-rose-200/70 text-[11px] text-rose-950 leading-relaxed">
-                    🌐 <strong>Loco Translate &amp; Customization Ready:</strong> Frontend account notices, countdown badges, and all email templates use standard WordPress gettext functions (<code>nbd-s3-offload</code> domain). You can translate, rename, or customize every single phrase directly in Loco Translate with <strong>zero modifications</strong> to NBDesigner core files.
                   </div>
                 </div>
               )}
