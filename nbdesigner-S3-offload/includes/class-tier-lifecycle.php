@@ -18,7 +18,17 @@ class NBD_S3_Tier_Lifecycle {
      */
     public static function init(): void {
         // Pre-define font URL to CDN if offloading is active
-        add_action( 'plugins_loaded', array( __CLASS__, 'maybe_predefine_cdn_urls' ), 1 );
+        self::maybe_predefine_cdn_urls();
+
+        // Output buffer to intercept editor HTML and rewrite font URLs to CDN
+        add_action( 'template_redirect', array( __CLASS__, 'start_font_url_buffer' ), 1 );
+
+        // Modern studio editor script injection hook (fires right before app-modern.min.js)
+        add_action( 'nbd_extra_js', array( __CLASS__, 'inject_editor_font_override' ), 1 );
+
+        // Script and style loader src filters for enqueued fonts
+        add_filter( 'style_loader_src', array( __CLASS__, 'filter_font_loader_src' ), 999 );
+        add_filter( 'script_loader_src', array( __CLASS__, 'filter_font_loader_src' ), 999 );
 
         // On-demand hydration interception before design downloads & order views
         add_action( 'init', array( __CLASS__, 'intercept_download_hydration' ), 1 );
@@ -61,20 +71,190 @@ class NBD_S3_Tier_Lifecycle {
     }
 
     /**
+     * Resolve the public CDN / Spaces base URL from settings with intelligent fallbacks.
+     */
+    public static function get_public_cdn_base_url(): string {
+        $settings = NBD_S3_Settings::get_all();
+        $cdn_url  = trim( (string) ( $settings['cdn_url'] ?? '' ) );
+
+        if ( ! empty( $cdn_url ) ) {
+            if ( ! preg_match( '#^https?://#i', $cdn_url ) ) {
+                $cdn_url = 'https://' . $cdn_url;
+            }
+            $cdn_url = rtrim( $cdn_url, '/' );
+            // Strip trailing /fonts if user accidentally included it in their CDN root setting
+            if ( str_ends_with( strtolower( $cdn_url ), '/fonts' ) ) {
+                $cdn_url = substr( $cdn_url, 0, -6 );
+            }
+            return rtrim( $cdn_url, '/' );
+        }
+
+        // Fallback to S3 endpoint if bucket and endpoint are configured
+        $bucket   = trim( (string) ( $settings['bucket'] ?? '' ) );
+        $endpoint = trim( (string) ( $settings['endpoint'] ?? '' ) );
+
+        if ( ! empty( $bucket ) && ! empty( $endpoint ) ) {
+            $endpoint = preg_replace( '#^https?://#i', '', rtrim( $endpoint, '/' ) );
+            if ( ! empty( $settings['use_path_style'] ) ) {
+                return 'https://' . $endpoint . '/' . $bucket;
+            } else {
+                if ( preg_match( '#^' . preg_quote( $bucket, '#' ) . '\.#i', $endpoint ) ) {
+                    return 'https://' . $endpoint;
+                }
+                return 'https://' . $bucket . '.' . $endpoint;
+            }
+        }
+
+        return '';
+    }
+
+    /**
      * Pre-define CDN URLs before NBDesigner defines local defaults.
      */
     public static function maybe_predefine_cdn_urls(): void {
         $settings = NBD_S3_Settings::get_all();
-        if ( empty( $settings['cdn_url'] ) ) {
+        if ( empty( $settings['enable_font_offload'] ) ) {
             return;
         }
 
-        $cdn_base = rtrim( $settings['cdn_url'], '/' );
+        $cdn_base = self::get_public_cdn_base_url();
+        if ( empty( $cdn_base ) ) {
+            return;
+        }
 
-        // If font offload is enabled, point NBDESIGNER_FONT_URL to CDN
-        if ( ! empty( $settings['enable_font_offload'] ) && ! defined( 'NBDESIGNER_FONT_URL' ) ) {
+        // If font offload is enabled, point NBDESIGNER_FONT_URL to CDN /fonts
+        if ( ! defined( 'NBDESIGNER_FONT_URL' ) ) {
             define( 'NBDESIGNER_FONT_URL', $cdn_base . '/fonts' );
         }
+    }
+
+    /**
+     * Start output buffering on template_redirect to rewrite font URLs in editor HTML.
+     */
+    public static function start_font_url_buffer(): void {
+        $settings = NBD_S3_Settings::get_all();
+        if ( empty( $settings['enable_font_offload'] ) ) {
+            return;
+        }
+
+        $cdn_base = self::get_public_cdn_base_url();
+        if ( empty( $cdn_base ) ) {
+            return;
+        }
+
+        if ( ( defined( 'REST_REQUEST' ) && REST_REQUEST ) || ( defined( 'WP_CLI' ) && WP_CLI ) ) {
+            return;
+        }
+
+        ob_start( array( __CLASS__, 'rewrite_font_urls_in_html' ) );
+    }
+
+    /**
+     * Output buffer callback to rewrite local NBDesigner font URLs to CDN URLs.
+     */
+    public static function rewrite_font_urls_in_html( string $buffer ): string {
+        if ( false === strpos( $buffer, '/nbdesigner/fonts' ) ) {
+            return $buffer;
+        }
+
+        $settings = NBD_S3_Settings::get_all();
+        if ( empty( $settings['enable_font_offload'] ) ) {
+            return $buffer;
+        }
+
+        $cdn_base = self::get_public_cdn_base_url();
+        if ( empty( $cdn_base ) ) {
+            return $buffer;
+        }
+
+        $cdn_fonts_url = $cdn_base . '/fonts';
+
+        $upload_dir     = wp_upload_dir();
+        $local_font_url = untrailingslashit( $upload_dir['baseurl'] ) . '/nbdesigner/fonts';
+
+        $targets = array(
+            $local_font_url,
+            str_replace( 'https://', 'http://', $local_font_url ),
+            str_replace( 'http://', 'https://', $local_font_url ),
+            preg_replace( '#^https?:#i', '', $local_font_url ),
+        );
+
+        $site_uploads = untrailingslashit( site_url() ) . '/wp-content/uploads/nbdesigner/fonts';
+        $targets[]    = $site_uploads;
+        $targets[]    = preg_replace( '#^https?:#i', '', $site_uploads );
+
+        $targets = array_unique( array_filter( $targets ) );
+
+        foreach ( $targets as $target ) {
+            // Standard slash format
+            $buffer = str_replace( $target, $cdn_fonts_url, $buffer );
+
+            // Escaped slash format (for localized JSON data in scripts)
+            $target_json = str_replace( '/', '\/', $target );
+            $cdn_json    = str_replace( '/', '\/', $cdn_fonts_url );
+            $buffer      = str_replace( $target_json, $cdn_json, $buffer );
+        }
+
+        return $buffer;
+    }
+
+    /**
+     * Inject runtime JS config override into modern studio editor right before app-modern.min.js.
+     */
+    public static function inject_editor_font_override(): void {
+        $settings = NBD_S3_Settings::get_all();
+        if ( empty( $settings['enable_font_offload'] ) ) {
+            return;
+        }
+
+        $cdn_base = self::get_public_cdn_base_url();
+        if ( empty( $cdn_base ) ) {
+            return;
+        }
+
+        $cdn_font_url = $cdn_base . '/fonts';
+        ?>
+        <script type="text/javascript" id="nbd-s3-font-override">
+            /* NBDesigner S3 Offload: Enforce CDN Font URL for Studio Canvas */
+            (function() {
+                var cdnFontUrl = <?php echo json_encode( $cdn_font_url ); ?>;
+                if (typeof NBDESIGNCONFIG !== 'undefined') {
+                    NBDESIGNCONFIG.font_url = cdnFontUrl;
+                    if (Array.isArray(NBDESIGNCONFIG.fonts)) {
+                        NBDESIGNCONFIG.fonts.forEach(function(item) {
+                            if (item && item.file && typeof item.file === 'object') {
+                                Object.keys(item.file).forEach(function(k) {
+                                    if (typeof item.file[k] === 'string' && item.file[k].indexOf('/nbdesigner/fonts/') > -1) {
+                                        item.file[k] = item.file[k].replace(/^https?:\/\/[^\/]+\/wp-content\/uploads\/nbdesigner\/fonts/i, cdnFontUrl);
+                                    }
+                                });
+                            }
+                            if (item && typeof item.url === 'string' && item.url.indexOf('/nbdesigner/fonts/') > -1) {
+                                item.url = item.url.replace(/^https?:\/\/[^\/]+\/wp-content\/uploads\/nbdesigner\/fonts/i, cdnFontUrl);
+                            }
+                        });
+                    }
+                }
+            })();
+        </script>
+        <?php
+    }
+
+    /**
+     * Filter WordPress style & script loader URLs to ensure enqueued font stylesheets resolve via CDN.
+     */
+    public static function filter_font_loader_src( string $src ): string {
+        if ( false !== strpos( $src, '/nbdesigner/fonts/' ) ) {
+            $settings = NBD_S3_Settings::get_all();
+            if ( ! empty( $settings['enable_font_offload'] ) ) {
+                $cdn_base = self::get_public_cdn_base_url();
+                if ( ! empty( $cdn_base ) ) {
+                    $cdn_font_url = $cdn_base . '/fonts';
+                    $src          = preg_replace( '#^https?://[^/]+/wp-content/uploads/nbdesigner/fonts#i', $cdn_font_url, $src );
+                }
+            }
+        }
+        return $src;
     }
 
     /**
