@@ -21,3 +21,40 @@
 .transition-all-fast {
   transition: all 0.15s ease-in-out;
 }
+
+/* Scoped responsive visibility protection to prevent collisions with WordPress core & Bootstrap .hidden { display: none !important; } */
+#nbd-s3-offload-root .nbd-s3-desktop-only {
+  display: none !important;
+}
+@media (min-width: 768px) {
+  #nbd-s3-offload-root .nbd-s3-desktop-only {
+    display: block !important;
+  }
+}
+
+#nbd-s3-offload-root .nbd-s3-mobile-only {
+  display: block !important;
+}
+@media (min-width: 768px) {
+  #nbd-s3-offload-root .nbd-s3-mobile-only {
+    display: none !important;
+  }
+}
+
+#nbd-s3-offload-root .nbd-s3-sm-desktop-inline {
+  display: none !important;
+}
+@media (min-width: 640px) {
+  #nbd-s3-offload-root .nbd-s3-sm-desktop-inline {
+    display: inline !important;
+  }
+}
+
+#nbd-s3-offload-root .nbd-s3-sm-mobile-inline {
+  display: inline !important;
+}
+@media (min-width: 640px) {
+  #nbd-s3-offload-root .nbd-s3-sm-mobile-inline {
+    display: none !important;
+  }
+}

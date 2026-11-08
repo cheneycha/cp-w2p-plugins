@@ -756,7 +756,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.0.22'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.0.23'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">
@@ -1120,12 +1120,12 @@ export default function App() {
 
                     {/* Pagination & Count */}
                     <div className="flex items-center gap-2 text-xs text-slate-500">
-                      <span className="hidden sm:inline">
+                      <span className="nbd-s3-sm-desktop-inline">
                         {foldersTotal > 0
                           ? `Showing ${explorerPage * PAGE_SIZE + 1}–${Math.min((explorerPage + 1) * PAGE_SIZE, foldersTotal)} of ${foldersTotal}`
                           : 'Showing 0 folders'}
                       </span>
-                      <span className="inline sm:hidden font-medium">
+                      <span className="nbd-s3-sm-mobile-inline font-medium">
                         {foldersTotal > 0 ? `${explorerPage * PAGE_SIZE + 1}–${Math.min((explorerPage + 1) * PAGE_SIZE, foldersTotal)} / ${foldersTotal}` : '0'}
                       </span>
 
@@ -1190,8 +1190,8 @@ export default function App() {
                     </div>
                   ) : (
                     <>
-                      {/* Mobile Card List View (Visible on < md screens) */}
-                      <div className="block md:hidden divide-y divide-slate-100">
+                      {/* Mobile Card List View (Visible on < 768px screens) */}
+                      <div className="nbd-s3-mobile-only divide-y divide-slate-100">
                         {folders.map((f) => {
                           const isBusy = operatingFolder === f.folder;
                           return (
@@ -1231,16 +1231,16 @@ export default function App() {
                         })}
                       </div>
 
-                      {/* Desktop Tabular View (Visible on >= md screens) */}
-                      <div className="hidden md:block overflow-x-auto">
-                        <table className="w-full text-left border-collapse text-xs sm:text-sm">
+                      {/* Desktop Tabular View (Visible on >= 768px screens) */}
+                      <div className="nbd-s3-desktop-only overflow-x-auto">
+                        <table className="w-full text-left border-collapse text-xs sm:text-sm !m-0 !p-0">
                           <thead>
                             <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase tracking-wider font-semibold">
-                              <th className="py-3 px-4">Design Folder Key</th>
-                              <th className="py-3 px-4">Storage Status</th>
-                              <th className="py-3 px-4">Age / Modified</th>
-                              <th className="py-3 px-4">Local Files / Size</th>
-                              <th className="py-3 px-4 text-right">Actions</th>
+                              <th className="py-3 px-4 !font-semibold">Design Folder Key</th>
+                              <th className="py-3 px-4 !font-semibold">Storage Status</th>
+                              <th className="py-3 px-4 !font-semibold">Age / Modified</th>
+                              <th className="py-3 px-4 !font-semibold">Local Files / Size</th>
+                              <th className="py-3 px-4 text-right !font-semibold">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
@@ -1248,28 +1248,28 @@ export default function App() {
                               const isBusy = operatingFolder === f.folder;
                               return (
                                 <tr key={f.folder} className="hover:bg-slate-50/80 transition">
-                                  <td className="py-3 px-4 font-mono font-medium text-slate-800">
+                                  <td className="py-3 px-4 font-mono font-medium text-slate-800 align-middle">
                                     <div className="flex items-center gap-2">
                                       <Folder className="w-4 h-4 text-slate-400 flex-shrink-0" />
                                       <span className="truncate max-w-[200px] sm:max-w-xs">{f.folder}</span>
                                     </div>
                                   </td>
 
-                                  <td className="py-3 px-4">
+                                  <td className="py-3 px-4 align-middle">
                                     {renderFolderBadge(f)}
                                   </td>
 
-                                  <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                                  <td className="py-3 px-4 text-slate-600 whitespace-nowrap align-middle">
                                     <div>{f.modified_date}</div>
                                     <span className="text-xs text-slate-400">{f.age_days} days ago</span>
                                   </td>
 
-                                  <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                                  <td className="py-3 px-4 text-slate-600 whitespace-nowrap align-middle">
                                     <span className="font-semibold text-slate-700">{f.size_formatted}</span>
                                     <span className="text-xs text-slate-400 ml-1.5">({f.files_count} files)</span>
                                   </td>
 
-                                  <td className="py-3 px-4 text-right whitespace-nowrap">
+                                  <td className="py-3 px-4 text-right whitespace-nowrap align-middle">
                                     {renderFolderActions(f, isBusy, false)}
                                   </td>
                                 </tr>
