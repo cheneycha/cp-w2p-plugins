@@ -98,7 +98,14 @@ class NBD_S3_Settings {
         if ( ! is_array( $saved ) ) {
             $saved = array();
         }
-        return array_merge( self::get_defaults(), $saved );
+        $merged = array_merge( self::get_defaults(), $saved );
+
+        // Auto-heal: Ensure activity logging remains enabled by default
+        if ( ! isset( $merged['enable_activity_log'] ) || false === $merged['enable_activity_log'] ) {
+            $merged['enable_activity_log'] = true;
+        }
+
+        return $merged;
     }
 
     /**
@@ -135,9 +142,9 @@ class NBD_S3_Settings {
             'default_object_acl'         => in_array( $data['default_object_acl'] ?? '', array( 'public-read', 'private', 'none' ), true ) ? $data['default_object_acl'] : 'public-read',
             'delete_remote_on_restore'   => ! empty( $data['delete_remote_on_restore'] ),
             'font_cache_max_age'         => max( 3600, absint( $data['font_cache_max_age'] ?? $current['font_cache_max_age'] ) ),
-            'sync_paused'                => ! empty( $data['sync_paused'] ),
+            'sync_paused'                => isset( $data['sync_paused'] ) ? ! empty( $data['sync_paused'] ) : ( $current['sync_paused'] ?? true ),
             'sync_schedule_time'         => sanitize_text_field( $data['sync_schedule_time'] ?? $current['sync_schedule_time'] ?? '03:00' ),
-            'enable_activity_log'        => ! empty( $data['enable_activity_log'] ),
+            'enable_activity_log'        => isset( $data['enable_activity_log'] ) ? ! empty( $data['enable_activity_log'] ) : ( $current['enable_activity_log'] ?? true ),
             'max_log_entries'            => max( 50, min( 500, absint( $data['max_log_entries'] ?? $current['max_log_entries'] ?? 200 ) ) ),
         );
 

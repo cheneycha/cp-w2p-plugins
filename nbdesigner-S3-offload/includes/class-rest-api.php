@@ -113,6 +113,12 @@ class NBD_S3_REST_API {
             'callback'            => array( __CLASS__, 'clear_logs' ),
             'permission_callback' => array( __CLASS__, 'check_permission' ),
         ) );
+
+        register_rest_route( self::NAMESPACE, '/logs/record', array(
+            'methods'             => \WP_REST_Server::CREATABLE,
+            'callback'            => array( __CLASS__, 'record_log' ),
+            'permission_callback' => array( __CLASS__, 'check_permission' ),
+        ) );
     }
 
     /**
@@ -437,6 +443,26 @@ class NBD_S3_REST_API {
             'success' => true,
             'message' => __( 'Activity log cleared.', 'nbd-s3-offload' ),
             'logs'    => array(),
+        ), 200 );
+    }
+
+    /**
+     * POST /logs/record
+     * Record a client-driven activity audit log entry (e.g. batch trial start/end).
+     */
+    public static function record_log( \WP_REST_Request $request ): \WP_REST_Response {
+        $action  = sanitize_text_field( (string) $request->get_param( 'action' ) );
+        $message = sanitize_text_field( (string) $request->get_param( 'message' ) );
+        $details = (array) ( $request->get_param( 'details' ) ?: array() );
+        $status  = sanitize_text_field( (string) ( $request->get_param( 'status' ) ?: 'info' ) );
+
+        if ( ! empty( $action ) && ! empty( $message ) ) {
+            NBD_S3_Logger::log( $action, $message, $details, $status );
+        }
+
+        return new \WP_REST_Response( array(
+            'success' => true,
+            'logs'    => NBD_S3_Logger::get_logs( 150 ),
         ), 200 );
     }
 }

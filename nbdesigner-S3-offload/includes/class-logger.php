@@ -26,7 +26,7 @@ class NBD_S3_Logger {
      */
     public static function log( string $action, string $message, array $details = array(), string $status = 'info' ): void {
         $settings = NBD_S3_Settings::get_all();
-        if ( empty( $settings['enable_activity_log'] ) ) {
+        if ( isset( $settings['enable_activity_log'] ) && false === $settings['enable_activity_log'] ) {
             return;
         }
 
@@ -35,10 +35,12 @@ class NBD_S3_Logger {
             $logs = array();
         }
 
+        $now_formatted = wp_date( 'Y-m-d H:i:s' );
         $entry = array(
             'id'             => wp_generate_uuid4(),
             'timestamp'      => time(),
-            'formatted_time' => wp_date( 'Y-m-d H:i:s' ),
+            'time'           => $now_formatted,
+            'formatted_time' => $now_formatted,
             'action'         => strtoupper( sanitize_text_field( $action ) ),
             'status'         => in_array( $status, array( 'success', 'error', 'warning', 'info' ), true ) ? $status : 'info',
             'message'        => sanitize_text_field( $message ),

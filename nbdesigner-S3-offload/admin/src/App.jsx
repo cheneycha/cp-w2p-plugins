@@ -589,7 +589,24 @@ export default function App() {
       let failed = 0;
       let lastErrorMessage = '';
 
-      // Step 2: Progressively offload each folder one by one to avoid web server proxy timeouts
+      // Step 2: Record batch trial start in activity audit log
+      try {
+        await fetch(`${config.restUrl}/logs/record`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({
+            action: 'TRIAL_BATCH',
+            message: `Starting test offload on ${total} candidate folders.`,
+            details: { total, folders: foldersToOffload },
+            status: 'info',
+          }),
+        });
+        fetchLogs();
+      } catch (e) {
+        console.warn('Failed to record trial start log:', e);
+      }
+
+      // Step 3: Progressively offload each folder one by one to avoid web server proxy timeouts
       for (let i = 0; i < total; i++) {
         const folder = foldersToOffload[i];
         setBatchProgress(`Offloading folder ${i + 1} of ${total}...`);
@@ -616,6 +633,23 @@ export default function App() {
         }
       }
 
+      // Step 4: Record batch trial summary in activity audit log
+      try {
+        const summaryMsg = `Tested offload on ${total} folders: ${succeeded} succeeded${failed > 0 ? `, ${failed} failed` : ''}.`;
+        await fetch(`${config.restUrl}/logs/record`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({
+            action: 'TRIAL_BATCH',
+            message: summaryMsg,
+            details: { total, succeeded, failed },
+            status: failed === 0 ? 'success' : (succeeded > 0 ? 'warning' : 'error'),
+          }),
+        });
+      } catch (e) {
+        console.warn('Failed to record trial complete log:', e);
+      }
+
       if (failed === 0) {
         showNotice('success', `Batch trial completed: All ${succeeded} folders successfully offloaded to S3!`);
       } else if (succeeded > 0) {
@@ -625,6 +659,7 @@ export default function App() {
       }
 
       fetchStats();
+      fetchLogs();
       fetchExplorerFolders(explorerFilter, true, explorerPage, explorerSearch);
     } catch (err) {
       showNotice('error', 'Batch test error: ' + err.message);
@@ -646,6 +681,7 @@ export default function App() {
       if (res.ok && data.success) {
         showNotice('success', `Folder "${folder}" successfully offloaded to S3 and local heavy files purged.`);
         fetchStats();
+        fetchLogs();
         fetchExplorerFolders(explorerFilter, true, explorerPage, explorerSearch);
       } else {
         showNotice('error', data.message || 'Failed to offload folder.');
@@ -669,6 +705,7 @@ export default function App() {
       if (res.ok && data.success) {
         showNotice('success', `Folder "${folder}" downloaded from S3 and restored back to local NVMe SSD!`);
         fetchStats();
+        fetchLogs();
         fetchExplorerFolders(explorerFilter, true, explorerPage, explorerSearch);
       } else {
         showNotice('error', data.message || 'Failed to restore folder.');
@@ -811,7 +848,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.1.6'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.1.7'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">
@@ -2246,12 +2283,15 @@ export default function App() {
                       .filter((log) => {
                         if (logsFilter === 'all') return true;
                         if (logsFilter === 'error') return log.status === 'error';
+                        if (logsFilter === 'OFFLOAD') {
+                          return (log.action || '').toUpperCase().includes('OFFLOAD') || (log.action || '').toUpperCase().includes('TRIAL');
+                        }
                         return (log.action || '').toUpperCase().includes(logsFilter.toUpperCase());
                       })
                       .map((log) => (
                         <tr key={log.id} className="hover:bg-slate-50/70 transition font-mono">
                           <td className="py-3 px-4 whitespace-nowrap text-slate-500 font-sans text-xs">
-                            {log.time}
+                            {log.formatted_time || log.time || (log.timestamp ? new Date(log.timestamp * 1000).toLocaleString() : '—')}
                           </td>
                           <td className="py-3 px-4 whitespace-nowrap">
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold ${
@@ -2263,6 +2303,8 @@ export default function App() {
                                 ? 'bg-blue-100 text-blue-800 border border-blue-200'
                                 : log.action.includes('SWEEP')
                                 ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                                : log.action.includes('TRIAL')
+                                ? 'bg-cyan-100 text-cyan-800 border border-cyan-200'
                                 : 'bg-slate-100 text-slate-800 border border-slate-200'
                             }`}>
                               {log.action}
