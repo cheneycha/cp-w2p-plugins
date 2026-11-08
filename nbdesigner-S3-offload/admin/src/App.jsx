@@ -587,6 +587,7 @@ export default function App() {
       const total = foldersToOffload.length;
       let succeeded = 0;
       let failed = 0;
+      let lastErrorMessage = '';
 
       // Step 2: Progressively offload each folder one by one to avoid web server proxy timeouts
       for (let i = 0; i < total; i++) {
@@ -604,19 +605,23 @@ export default function App() {
             succeeded++;
           } else {
             failed++;
+            if (offloadData && offloadData.message) {
+              lastErrorMessage = offloadData.message;
+            }
           }
         } catch (err) {
           console.error(`Error offloading folder ${folder}:`, err);
           failed++;
+          lastErrorMessage = err.message;
         }
       }
 
       if (failed === 0) {
         showNotice('success', `Batch trial completed: All ${succeeded} folders successfully offloaded to S3!`);
       } else if (succeeded > 0) {
-        showNotice('warning', `Batch trial completed with partial success: ${succeeded} folders succeeded, ${failed} failed.`);
+        showNotice('warning', `Batch trial completed with partial success: ${succeeded} folders succeeded, ${failed} failed.${lastErrorMessage ? ` (${lastErrorMessage})` : ''}`);
       } else {
-        showNotice('error', `Batch trial failed: All ${failed} folders encountered errors.`);
+        showNotice('error', `Batch trial failed: All ${failed} folders encountered errors.${lastErrorMessage ? ` Reason: ${lastErrorMessage}` : ''}`);
       }
 
       fetchStats();
@@ -806,7 +811,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.1.5'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.1.6'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">

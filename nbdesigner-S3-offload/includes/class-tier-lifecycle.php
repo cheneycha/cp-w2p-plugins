@@ -841,7 +841,7 @@ class NBD_S3_Tier_Lifecycle {
         $total_uploaded = 0;
 
         foreach ( $eligible as $folder ) {
-            $res = self::process_single_offload( $folder );
+            $res = self::process_single_offload( $folder, 0, true );
             $results[] = array(
                 'folder'  => $folder,
                 'success' => $res['success'] ?? false,
@@ -947,14 +947,19 @@ class NBD_S3_Tier_Lifecycle {
 
     /**
      * Process offload for a single order item key: upload to S3, verify, and purge local files.
+     *
+     * @param string $item_key  Design folder key / item ID.
+     * @param int    $order_id  Associated WooCommerce order ID.
+     * @param bool   $is_manual Whether this offload was explicitly requested by an admin in the UI.
      */
-    public static function process_single_offload( string $item_key, int $order_id = 0 ): array {
+    public static function process_single_offload( string $item_key, int $order_id = 0, bool $is_manual = false ): array {
         @set_time_limit( 120 );
         @ini_set( 'max_execution_time', '120' );
 
-        // Safety Kill-Switch: Skip if syncing is paused by admin
+        // Safety Kill-Switch: Skip automated background tasks if syncing is paused by admin.
+        // Manual tests initiated in the Safe Trial Zone or Explorer by an admin are permitted.
         $settings = NBD_S3_Settings::get_all();
-        if ( ! empty( $settings['sync_paused'] ) ) {
+        if ( ! $is_manual && ! empty( $settings['sync_paused'] ) ) {
             return array( 'success' => false, 'message' => 'Skipped: Sync is paused by admin (Safe Mode active)' );
         }
 

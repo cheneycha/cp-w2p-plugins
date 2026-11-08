@@ -341,7 +341,8 @@ class NBD_S3_REST_API {
             return new \WP_REST_Response( array( 'success' => false, 'message' => 'Missing folder parameter' ), 400 );
         }
 
-        $res = NBD_S3_Tier_Lifecycle::process_single_offload( $folder );
+        // Explicit admin manual offload via Explorer or Sandbox Trial
+        $res = NBD_S3_Tier_Lifecycle::process_single_offload( $folder, 0, true );
         return new \WP_REST_Response( $res, 200 );
     }
 
