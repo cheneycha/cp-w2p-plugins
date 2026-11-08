@@ -382,6 +382,14 @@ class NBD_S3_REST_API {
         $new_pause_state = isset( $params['paused'] ) ? (bool) $params['paused'] : ! ( $settings['sync_paused'] ?? true );
         NBD_S3_Settings::update( array( 'sync_paused' => $new_pause_state ) );
 
+        // If pausing (Safe Mode active), immediately unschedule any queued offload tasks and clear active indicator
+        if ( $new_pause_state ) {
+            if ( function_exists( 'as_unschedule_all_actions' ) ) {
+                as_unschedule_all_actions( 'nbd_s3_async_offload_item' );
+            }
+            delete_transient( 'nbd_s3_sync_status' );
+        }
+
         $log_action = $new_pause_state ? 'SYNC_PAUSED' : 'SYNC_RESUMED';
         $log_msg    = $new_pause_state
             ? __( 'Automated S3 sync and purges paused by admin (Safe Mode active).', 'nbd-s3-offload' )

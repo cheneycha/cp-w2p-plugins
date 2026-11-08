@@ -952,6 +952,12 @@ class NBD_S3_Tier_Lifecycle {
         @set_time_limit( 120 );
         @ini_set( 'max_execution_time', '120' );
 
+        // Safety Kill-Switch: Skip if syncing is paused by admin
+        $settings = NBD_S3_Settings::get_all();
+        if ( ! empty( $settings['sync_paused'] ) ) {
+            return array( 'success' => false, 'message' => 'Skipped: Sync is paused by admin (Safe Mode active)' );
+        }
+
         $item_key = sanitize_file_name( $item_key );
         if ( empty( $item_key ) ) {
             return array( 'success' => false, 'message' => 'Empty item key' );
@@ -1397,20 +1403,33 @@ class NBD_S3_Tier_Lifecycle {
      * Get live sync running and pause status.
      */
     public static function get_sync_status(): array {
-        $settings = NBD_S3_Settings::get_all();
+        $settings  = NBD_S3_Settings::get_all();
         $transient = get_transient( 'nbd_s3_sync_status' );
         $is_running = ! empty( $transient ) && ! empty( $transient['running'] );
+
+        // Also check if Action Scheduler has pending async offload items
+        $has_pending_items = function_exists( 'as_has_scheduled_action' ) && as_has_scheduled_action( 'nbd_s3_async_offload_item' );
+        if ( $has_pending_items && empty( $settings['sync_paused'] ) ) {
+            $is_running = true;
+        }
 
         $next_run_ts = function_exists( 'as_next_scheduled_action' ) ? as_next_scheduled_action( 'nbd_s3_cron_cold_sweep' ) : null;
         $next_run_formatted = $next_run_ts && function_exists( 'wp_date' ) ? wp_date( 'Y-m-d H:i:s T', $next_run_ts ) : null;
 
         $tz_string = function_exists( 'wp_timezone_string' ) ? wp_timezone_string() : 'UTC';
 
+        $action_label = 'Idle';
+        if ( ! empty( $settings['sync_paused'] ) ) {
+            $action_label = 'Paused (Safe Mode)';
+        } elseif ( $is_running ) {
+            $action_label = $has_pending_items ? 'Cold Sweep (Offloading Queued Items)' : ( $transient['action'] ?? 'Running' );
+        }
+
         return array(
             'is_running'         => $is_running,
             'is_paused'          => ! empty( $settings['sync_paused'] ),
-            'current_action'     => $is_running ? ( $transient['action'] ?? 'Running' ) : 'Idle',
-            'started_at'         => $is_running ? ( $transient['started_at'] ?? null ) : null,
+            'current_action'     => $action_label,
+            'started_at'         => $is_running ? ( $transient['started_at'] ?? time() ) : null,
             'server_time'        => function_exists( 'wp_date' ) ? wp_date( 'Y-m-d H:i:s' ) : gmdate( 'Y-m-d H:i:s' ),
             'server_timezone'    => $tz_string,
             'sync_schedule_time' => $settings['sync_schedule_time'] ?? '03:00',
