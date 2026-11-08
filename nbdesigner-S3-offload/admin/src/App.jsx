@@ -221,6 +221,7 @@ export default function App() {
   const [operatingFolder, setOperatingFolder] = useState(null);
   const [batchCount, setBatchCount] = useState(3);
   const [batchRunning, setBatchRunning] = useState(false);
+  const [batchProgress, setBatchProgress] = useState('');
 
   const config = window.nbdS3OffloadConfig || {
     restUrl: '/wp-json/nbd-s3-offload/v1',
@@ -231,6 +232,18 @@ export default function App() {
     'Content-Type': 'application/json',
     'X-WP-Nonce': config.nonce,
   });
+
+  const safeJson = async (res) => {
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      if (!res.ok) {
+        throw new Error(`Server returned HTTP ${res.status} (${res.statusText || 'Gateway / Server Error'})`);
+      }
+      throw new Error('Invalid JSON response from server');
+    }
+  };
 
   useEffect(() => {
     fetchSettings();
@@ -558,24 +571,61 @@ export default function App() {
       return;
     }
     setBatchRunning(true);
+    setBatchProgress('Finding eligible folders...');
     try {
-      const res = await fetch(`${config.restUrl}/explorer/test-batch`, {
-        method: 'POST',
+      // Step 1: Fetch candidate folders
+      const candidatesRes = await fetch(`${config.restUrl}/explorer/test-batch-candidates?count=${count}`, {
         headers: getHeaders(),
-        body: JSON.stringify({ count }),
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        showNotice('success', data.message);
-        fetchStats();
-        fetchExplorerFolders(explorerFilter, true, explorerPage, explorerSearch);
-      } else {
-        showNotice('error', data.message || 'Batch test failed.');
+      const candidatesData = await safeJson(candidatesRes);
+      if (!candidatesData.success || !candidatesData.folders || candidatesData.folders.length === 0) {
+        showNotice('error', candidatesData.message || 'No eligible aged non-template folders found to test offload.');
+        return;
       }
+
+      const foldersToOffload = candidatesData.folders;
+      const total = foldersToOffload.length;
+      let succeeded = 0;
+      let failed = 0;
+
+      // Step 2: Progressively offload each folder one by one to avoid web server proxy timeouts
+      for (let i = 0; i < total; i++) {
+        const folder = foldersToOffload[i];
+        setBatchProgress(`Offloading folder ${i + 1} of ${total}...`);
+
+        try {
+          const offloadRes = await fetch(`${config.restUrl}/explorer/offload-single`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({ folder }),
+          });
+          const offloadData = await safeJson(offloadRes);
+          if (offloadRes.ok && offloadData.success) {
+            succeeded++;
+          } else {
+            failed++;
+          }
+        } catch (err) {
+          console.error(`Error offloading folder ${folder}:`, err);
+          failed++;
+        }
+      }
+
+      if (failed === 0) {
+        showNotice('success', `Batch trial completed: All ${succeeded} folders successfully offloaded to S3!`);
+      } else if (succeeded > 0) {
+        showNotice('warning', `Batch trial completed with partial success: ${succeeded} folders succeeded, ${failed} failed.`);
+      } else {
+        showNotice('error', `Batch trial failed: All ${failed} folders encountered errors.`);
+      }
+
+      fetchStats();
+      fetchExplorerFolders(explorerFilter, true, explorerPage, explorerSearch);
     } catch (err) {
       showNotice('error', 'Batch test error: ' + err.message);
     } finally {
       setBatchRunning(false);
+      setBatchProgress('');
     }
   };
 
@@ -587,7 +637,7 @@ export default function App() {
         headers: getHeaders(),
         body: JSON.stringify({ folder }),
       });
-      const data = await res.json();
+      const data = await safeJson(res);
       if (res.ok && data.success) {
         showNotice('success', `Folder "${folder}" successfully offloaded to S3 and local heavy files purged.`);
         fetchStats();
@@ -610,7 +660,7 @@ export default function App() {
         headers: getHeaders(),
         body: JSON.stringify({ folder }),
       });
-      const data = await res.json();
+      const data = await safeJson(res);
       if (res.ok && data.success) {
         showNotice('success', `Folder "${folder}" downloaded from S3 and restored back to local NVMe SSD!`);
         fetchStats();
@@ -756,7 +806,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.1.2'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.1.3'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">
@@ -1056,7 +1106,7 @@ export default function App() {
                     ) : (
                       <UploadCloud className="w-4 h-4" />
                     )}
-                    {batchRunning ? 'Processing Trial...' : `Test Offload ${batchCount} Aged Folders`}
+                    {batchRunning ? (batchProgress || 'Processing Trial...') : `Test Offload ${batchCount} Aged Folders`}
                   </button>
                 </div>
               </div>

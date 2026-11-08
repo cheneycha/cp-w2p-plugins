@@ -800,20 +800,34 @@ class NBD_S3_Tier_Lifecycle {
     }
 
     /**
-     * Batch test offload on a specific number of aged folders.
+     * Get eligible aged non-template folders for batch testing.
      */
-    public static function test_batch_offload( int $count = 3 ): array {
-        $explorer = self::get_design_folders_explorer( 100, 0, 'aged' );
+    public static function get_eligible_batch_folders( int $count = 3 ): array {
+        $explorer = self::get_design_folders_explorer( 200, 0, 'aged' );
         $eligible = array();
 
-        foreach ( $explorer['folders'] as $item ) {
-            if ( ! $item['is_template'] && ! $item['is_offloaded'] ) {
-                $eligible[] = $item['folder'];
-                if ( count( $eligible ) >= $count ) {
-                    break;
+        if ( ! empty( $explorer['folders'] ) ) {
+            foreach ( $explorer['folders'] as $item ) {
+                if ( ! $item['is_template'] && ! $item['is_offloaded'] ) {
+                    $eligible[] = $item['folder'];
+                    if ( count( $eligible ) >= $count ) {
+                        break;
+                    }
                 }
             }
         }
+
+        return $eligible;
+    }
+
+    /**
+     * Batch test offload on a specific number of aged folders.
+     */
+    public static function test_batch_offload( int $count = 3 ): array {
+        @set_time_limit( 300 );
+        @ini_set( 'max_execution_time', '300' );
+
+        $eligible = self::get_eligible_batch_folders( $count );
 
         if ( empty( $eligible ) ) {
             return array(
@@ -920,6 +934,9 @@ class NBD_S3_Tier_Lifecycle {
      * Process offload for a single order item key: upload to S3, verify, and purge local files.
      */
     public static function process_single_offload( string $item_key, int $order_id = 0 ): array {
+        @set_time_limit( 120 );
+        @ini_set( 'max_execution_time', '120' );
+
         $item_key = sanitize_file_name( $item_key );
         if ( empty( $item_key ) ) {
             return array( 'success' => false, 'message' => 'Empty item key' );

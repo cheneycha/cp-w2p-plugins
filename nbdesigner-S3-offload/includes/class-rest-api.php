@@ -66,6 +66,12 @@ class NBD_S3_REST_API {
             'permission_callback' => array( __CLASS__, 'check_permission' ),
         ) );
 
+        register_rest_route( self::NAMESPACE, '/explorer/test-batch-candidates', array(
+            'methods'             => \WP_REST_Server::READABLE,
+            'callback'            => array( __CLASS__, 'get_test_batch_candidates' ),
+            'permission_callback' => array( __CLASS__, 'check_permission' ),
+        ) );
+
         register_rest_route( self::NAMESPACE, '/explorer/test-batch', array(
             'methods'             => \WP_REST_Server::CREATABLE,
             'callback'            => array( __CLASS__, 'test_batch_offload' ),
@@ -295,6 +301,20 @@ class NBD_S3_REST_API {
             'success' => true,
             'total'   => $data['total'],
             'folders' => $data['folders'],
+        ), 200 );
+    }
+
+    /**
+     * GET /explorer/test-batch-candidates
+     */
+    public static function get_test_batch_candidates( \WP_REST_Request $request ): \WP_REST_Response {
+        $count   = (int) ( $request->get_param( 'count' ) ?: 3 );
+        $folders = NBD_S3_Tier_Lifecycle::get_eligible_batch_folders( $count );
+
+        return new \WP_REST_Response( array(
+            'success' => true,
+            'total'   => count( $folders ),
+            'folders' => $folders,
         ), 200 );
     }
 
