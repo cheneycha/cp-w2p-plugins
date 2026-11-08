@@ -756,7 +756,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.1.1'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.1.2'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">
@@ -1502,8 +1502,8 @@ export default function App() {
             </div>
 
             {/* Tier 1 Whitelist Card */}
-            <div className="bg-gradient-to-r from-blue-50/90 to-blue-100/40 border border-blue-200 rounded-2xl p-5 shadow-xs">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="bg-gradient-to-r from-blue-50/90 to-blue-100/40 border border-blue-200 rounded-2xl p-5 space-y-4 shadow-xs">
+              <div className="flex items-start justify-between gap-4">
                 <div className="flex items-start gap-3.5">
                   <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
                     <ShieldCheck className="w-5 h-5" />
@@ -1523,90 +1523,107 @@ export default function App() {
                     <p className="text-xs text-blue-900/90 mt-1.5 leading-relaxed">
                       All design folders registered in <code>wp_nbdesigner_templates</code> are protected. They are never moved or deleted by background sweeps.
                     </p>
-                    <p className="text-xs text-blue-800/80 mt-1">
-                      If you convert older offloaded guest orders into admin templates, click Restore below to pull their assets back from S3.
-                    </p>
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleRestoreWhitelistedTemplates}
-                  disabled={restoringTemplates}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm transition whitespace-nowrap self-start md:self-center cursor-pointer"
-                >
-                  {restoringTemplates ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                  {restoringTemplates ? 'Restoring...' : 'Restore Whitelisted Templates to Local'}
-                </button>
-              </div>
-            </div>
-
-            {/* Master Safety Pause & Schedule Controls */}
-            <div className="bg-slate-50 rounded-2xl border border-slate-200 p-5 space-y-5">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4">
-                <div className="flex items-start gap-3">
-                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                    settings.sync_paused ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
-                  }`}>
-                    {settings.sync_paused ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">
-                      Master Sync & Purge Switch
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      {settings.sync_paused
-                        ? 'Safe Mode Active: All automatic S3 uploads and local file purges are completely stopped.'
-                        : 'Active: Automated daily cold sweeps and draft cleanup are scheduled and running.'}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 self-start md:self-center bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm">
-                  <span className={`text-xs font-bold ${settings.sync_paused ? 'text-amber-800' : 'text-emerald-800'}`}>
-                    {settings.sync_paused ? '⏸️ Paused (Safe)' : '▶️ Syncing Active'}
+                <div className="bg-white/90 border border-blue-200 px-3.5 py-2 rounded-xl text-center self-start md:self-center flex-shrink-0 shadow-xs">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 block">Protection SLA</span>
+                  <span className="text-xs font-extrabold text-blue-900 flex items-center gap-1.5 justify-center mt-0.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-blue-600" /> 100% Local SSD
                   </span>
-                  <ToggleSwitch
-                    checked={!settings.sync_paused}
-                    onChange={(val) => setSettings({ ...settings, sync_paused: !val })}
-                    activeColor="bg-emerald-600"
-                    ariaLabel="Toggle Master Sync & Purge Switch"
-                  />
                 </div>
               </div>
 
-              {/* Scheduled Run Time & Server Time Display */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-white p-4 rounded-xl border border-slate-200">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1.5">
-                    <Clock className="w-4 h-4 text-indigo-600" /> Daily Sync Scheduled Run Time
-                  </label>
-                  <input
-                    type="time"
-                    value={settings.sync_schedule_time || '03:00'}
-                    onChange={(e) => setSettings({ ...settings, sync_schedule_time: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2 text-sm font-mono font-bold focus:bg-white focus:ring-2 focus:ring-indigo-500 transition"
-                  />
-                  <p className="text-xs text-slate-400 mt-1">
-                    Triggers once daily at this local server hour via Action Scheduler.
-                  </p>
-                </div>
-
-                <div className="bg-gradient-to-br from-indigo-50/70 to-slate-50 p-4 rounded-xl border border-indigo-100 flex flex-col justify-between">
-                  <div>
-                    <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 flex items-center gap-1.5">
-                      <Radio className="w-3.5 h-3.5 text-indigo-500 animate-pulse" /> Live Server Clock
-                    </span>
-                    <div className="text-lg font-mono font-extrabold text-slate-900 mt-1">
-                      {syncStatus.server_time || 'Loading time...'}
+              {/* Setting contained inside Tier-1 wrapping with white background */}
+              <div className="border-t border-blue-100 pt-4 space-y-4 bg-white/80 p-4 sm:p-5 rounded-xl border border-slate-200">
+                {/* Master Safety Pause Switch */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                  <div className="flex items-start gap-3">
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                      settings.sync_paused ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
+                    }`}>
+                      {settings.sync_paused ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900">
+                        Master Sync & Purge Switch
+                      </h4>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {settings.sync_paused
+                          ? 'Safe Mode Active: All automatic S3 uploads and local file purges are completely stopped.'
+                          : 'Active: Automated daily cold sweeps and draft cleanup are scheduled and running.'}
+                      </p>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between text-xs text-indigo-900/80 pt-2 border-t border-indigo-100 mt-2">
-                    <span>Timezone: <strong>{syncStatus.server_timezone || 'UTC'}</strong></span>
-                    {syncStatus.next_scheduled_run && (
-                      <span className="text-[11px] text-slate-500">Next run: {syncStatus.next_scheduled_run}</span>
-                    )}
+
+                  <div className="flex items-center gap-3 self-start md:self-center bg-slate-50 px-3.5 py-1.5 rounded-xl border border-slate-200 shadow-2xs">
+                    <span className={`text-xs font-bold ${settings.sync_paused ? 'text-amber-800' : 'text-emerald-800'}`}>
+                      {settings.sync_paused ? '⏸️ Paused (Safe)' : '▶️ Syncing Active'}
+                    </span>
+                    <ToggleSwitch
+                      checked={!settings.sync_paused}
+                      onChange={(val) => setSettings({ ...settings, sync_paused: !val })}
+                      activeColor="bg-emerald-600"
+                      ariaLabel="Toggle Master Sync & Purge Switch"
+                    />
                   </div>
+                </div>
+
+                {/* Scheduled Run Time & Server Time Display */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center gap-1.5">
+                      <Clock className="w-4 h-4 text-indigo-600" /> Daily Sync Scheduled Run Time
+                    </label>
+                    <input
+                      type="time"
+                      value={settings.sync_schedule_time || '03:00'}
+                      onChange={(e) => setSettings({ ...settings, sync_schedule_time: e.target.value })}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-sm font-mono font-bold focus:ring-2 focus:ring-indigo-500 transition"
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Triggers once daily at this local server hour via Action Scheduler.
+                    </p>
+                  </div>
+
+                  <div className="bg-gradient-to-br from-indigo-50/60 to-slate-50/80 p-3.5 rounded-xl border border-indigo-100 flex flex-col justify-between">
+                    <div>
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-700 flex items-center gap-1.5">
+                        <Radio className="w-3.5 h-3.5 text-indigo-500 animate-pulse" /> Live Server Clock
+                      </span>
+                      <div className="text-base font-mono font-extrabold text-slate-900 mt-0.5">
+                        {syncStatus.server_time || 'Loading time...'}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-indigo-900/80 pt-1.5 border-t border-indigo-100/80 mt-1.5">
+                      <span>Timezone: <strong>{syncStatus.server_timezone || 'UTC'}</strong></span>
+                      {syncStatus.next_scheduled_run && (
+                        <span className="text-slate-500">Next run: {syncStatus.next_scheduled_run}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Template Asset Recovery Action */}
+                <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h5 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      <RefreshCw className="w-3.5 h-3.5 text-blue-600" /> Template Asset Recovery & S3 Pullback
+                    </h5>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      If you convert older offloaded guest orders into admin templates, click to pull all assets back from S3 to local SSD.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleRestoreWhitelistedTemplates}
+                    disabled={restoringTemplates}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition whitespace-nowrap self-start sm:self-center cursor-pointer flex-shrink-0"
+                  >
+                    {restoringTemplates ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                    {restoringTemplates ? 'Restoring...' : 'Restore Whitelisted Templates to Local'}
+                  </button>
                 </div>
               </div>
             </div>
