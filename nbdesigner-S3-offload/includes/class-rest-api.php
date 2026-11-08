@@ -54,6 +54,18 @@ class NBD_S3_REST_API {
             'permission_callback' => array( __CLASS__, 'check_permission' ),
         ) );
 
+        register_rest_route( self::NAMESPACE, '/saved-designs/stats', array(
+            'methods'             => \WP_REST_Server::READABLE,
+            'callback'            => array( __CLASS__, 'get_saved_designs_stats' ),
+            'permission_callback' => array( __CLASS__, 'check_permission' ),
+        ) );
+
+        register_rest_route( self::NAMESPACE, '/saved-designs/purge-now', array(
+            'methods'             => \WP_REST_Server::CREATABLE,
+            'callback'            => array( __CLASS__, 'purge_saved_designs_now' ),
+            'permission_callback' => array( __CLASS__, 'check_permission' ),
+        ) );
+
         register_rest_route( self::NAMESPACE, '/whitelist/restore-all', array(
             'methods'             => \WP_REST_Server::CREATABLE,
             'callback'            => array( __CLASS__, 'restore_whitelisted_templates' ),
@@ -283,6 +295,7 @@ class NBD_S3_REST_API {
                 'offloaded_orders_count' => $offloaded_orders_count,
                 'offloaded_count'        => $offloaded_orders_count,
                 'templates_count'        => $templates_count,
+                'saved_designs'          => NBD_S3_Tier_Lifecycle::get_saved_designs_stats(),
             ),
             'sync_status'       => NBD_S3_Tier_Lifecycle::get_sync_status(),
             'bucket_connection' => NBD_S3_Tier_Lifecycle::get_bucket_connection_status(),
@@ -469,6 +482,31 @@ class NBD_S3_REST_API {
         return new \WP_REST_Response( array(
             'success' => true,
             'logs'    => NBD_S3_Logger::get_logs( 150 ),
+        ), 200 );
+    }
+
+    /**
+     * GET /saved-designs/stats
+     */
+    public static function get_saved_designs_stats( \WP_REST_Request $request ): \WP_REST_Response {
+        $stats = NBD_S3_Tier_Lifecycle::get_saved_designs_stats();
+        return new \WP_REST_Response( array(
+            'success' => true,
+            'stats'   => $stats,
+        ), 200 );
+    }
+
+    /**
+     * POST /saved-designs/purge-now
+     * Dedicated manual purge button action for customer saved designs older than X days.
+     */
+    public static function purge_saved_designs_now( \WP_REST_Request $request ): \WP_REST_Response {
+        $result = NBD_S3_Tier_Lifecycle::run_saved_designs_purge( true );
+        return new \WP_REST_Response( array(
+            'success'      => $result['success'] ?? true,
+            'message'      => $result['message'] ?? '',
+            'purged_count' => $result['purged_count'] ?? 0,
+            'stats'        => NBD_S3_Tier_Lifecycle::get_saved_designs_stats(),
         ), 200 );
     }
 }

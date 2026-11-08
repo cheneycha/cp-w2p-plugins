@@ -2,7 +2,7 @@
 /**
  * Plugin Name: NBDesigner S3 Offload
  * Description: Offload NBDesigner design assets, print PDFs, and large fonts to S3-compatible object storage (Wasabi, Backblaze B2, Bunny, DigitalOcean, AWS) with CDN delivery and tiered lifecycle archiving.
- * Version: 0.2.0
+ * Version: 0.2.1
  * Author: Cheney Chang
  * Text Domain: nbd-s3-offload
  * Domain Path: /languages
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define Constants
-define( 'NBD_S3_VERSION', '0.2.0' );
+define( 'NBD_S3_VERSION', '0.2.1' );
 define( 'NBD_S3_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'NBD_S3_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'NBD_S3_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -59,6 +59,9 @@ final class NBD_S3_Offload_Plugin {
      * Initialize hooks.
      */
     private function init_hooks(): void {
+        // Load plugin textdomain for translations (Loco Translate compatible)
+        add_action( 'plugins_loaded', array( $this, 'load_textdomain' ) );
+
         // REST API routes
         add_action( 'rest_api_init', array( 'NBD_S3_REST_API', 'register_routes' ) );
 
@@ -75,6 +78,13 @@ final class NBD_S3_Offload_Plugin {
 
         // Admin dependency checks
         add_action( 'admin_notices', array( $this, 'check_dependencies' ) );
+    }
+
+    /**
+     * Load translation textdomain for Loco Translate / WordPress i18n.
+     */
+    public function load_textdomain(): void {
+        load_plugin_textdomain( 'nbd-s3-offload', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
     }
 
     /**
@@ -126,6 +136,7 @@ register_deactivation_hook( __FILE__, function() {
     if ( function_exists( 'as_unschedule_all_actions' ) ) {
         as_unschedule_all_actions( 'nbd_s3_cron_cold_sweep' );
         as_unschedule_all_actions( 'nbd_s3_cron_cleanup_drafts' );
+        as_unschedule_all_actions( 'nbd_s3_cron_saved_designs_lifecycle' );
     }
 } );
 

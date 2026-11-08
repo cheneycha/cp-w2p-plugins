@@ -81,6 +81,22 @@ const PRESETS = {
 
 const TIER_5_DAYS_PRESETS = [1, 7, 30, 90, 180];
 const TIER_3_DAYS_PRESETS = [1, 7, 14, 30, 90];
+const SAVED_DESIGNS_RETENTION_PRESETS = [14, 30, 60, 90, 180, 365];
+const SAVED_DESIGNS_WARNING_PRESETS = [1, 3, 7, 14, 30];
+
+const getClosestPresetIndex = (val, presets, fallbackIdx = 0) => {
+  const num = parseInt(val, 10) || presets[fallbackIdx];
+  let closest = 0;
+  let minDiff = Infinity;
+  presets.forEach((p, idx) => {
+    const diff = Math.abs(p - num);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closest = idx;
+    }
+  });
+  return closest;
+};
 
 const getClosestTier5Index = (val) => {
   const days = parseInt(val, 10) || 7;
@@ -168,6 +184,11 @@ export default function App() {
     protect_active_carts: true,
     default_object_acl: 'public-read',
     font_cache_max_age: 2592000,
+    enable_saved_designs_lifecycle: false,
+    saved_designs_retention_days: 90,
+    saved_designs_warning_days: 7,
+    saved_designs_send_warning_email: true,
+    saved_designs_send_purge_email: true,
     sync_paused: true,
     sync_schedule_time: '03:00',
     enable_activity_log: true,
@@ -206,6 +227,7 @@ export default function App() {
   const [testing, setTesting] = useState(false);
   const [syncingFonts, setSyncingFonts] = useState(false);
   const [sweeping, setSweeping] = useState(false);
+  const [purgingSavedDesigns, setPurgingSavedDesigns] = useState(false);
   const [restoringTemplates, setRestoringTemplates] = useState(false);
   const [notice, setNotice] = useState(null);
 
@@ -540,6 +562,35 @@ export default function App() {
     }
   };
 
+  const handlePurgeSavedDesignsNow = async () => {
+    const expiredCount = stats?.saved_designs?.expired ?? 0;
+    const retentionDays = settings.saved_designs_retention_days || 90;
+    const confirmMsg = `Run manual purge for expired customer saved designs now?\n\nThis will permanently delete local folders, remote S3 files, and database records for all customer saved designs older than ${retentionDays} days (${expiredCount} currently expired).\n\nIf notification emails are enabled, customers will receive a purge notice. Proceed?`;
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+    setPurgingSavedDesigns(true);
+    try {
+      const res = await fetch(`${config.restUrl}/saved-designs/purge-now`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+      const data = await safeJson(res);
+      if (res.ok && data.success) {
+        showNotice('success', data.message || `Purged ${data.purged_count || 0} expired customer saved designs.`);
+        fetchStats(true);
+        fetchLogs();
+        fetchExplorerFolders();
+      } else {
+        showNotice('error', data.message || 'Saved designs purge failed.');
+      }
+    } catch (err) {
+      showNotice('error', 'Saved designs purge error: ' + err.message);
+    } finally {
+      setPurgingSavedDesigns(false);
+    }
+  };
+
   const handleRestoreWhitelistedTemplates = async () => {
     if (!window.confirm('Scan all whitelisted admin templates in database and download any missing assets from S3 back to high-performance local SSD?')) {
       return;
@@ -848,7 +899,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.2.0'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.2.1'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">
@@ -2125,6 +2176,191 @@ export default function App() {
               )}
             </div>
 
+            {/* Customer Saved Designs Lifecycle Policy */}
+            <div className="border border-rose-200 bg-gradient-to-r from-rose-50/90 to-rose-100/40 rounded-2xl p-5 space-y-4 shadow-xs">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                    <Bookmark className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-rose-600 text-white shadow-xs tracking-wider">
+                        SAVED DESIGNS
+                      </span>
+                      <h3 className="text-sm font-bold text-rose-950">
+                        Customer Saved Designs Lifecycle &amp; Auto-Purge
+                      </h3>
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
+                        Loco Translate Ready
+                      </span>
+                    </div>
+                    <p className="text-xs text-rose-900/90 mt-1.5 leading-relaxed">
+                      Automatically cleans up customer saved designs (<code>wp_nbdesigner_mydesigns</code>) older than {settings.saved_designs_retention_days || 90} days, displays frontend expiry notices with countdown badges in their account area, and dispatches automated customer warning &amp; purge notification emails.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2.5 self-start md:self-center bg-white px-3.5 py-1.5 rounded-xl border border-rose-200 shadow-sm flex-shrink-0">
+                  <span className={`text-xs font-bold ${settings.enable_saved_designs_lifecycle ? 'text-rose-900' : 'text-slate-400'}`}>
+                    {settings.enable_saved_designs_lifecycle ? 'Active' : 'Disabled'}
+                  </span>
+                  <ToggleSwitch
+                    checked={settings.enable_saved_designs_lifecycle}
+                    onChange={(val) => setSettings({ ...settings, enable_saved_designs_lifecycle: val })}
+                    activeColor="bg-rose-600"
+                    ariaLabel="Toggle Customer Saved Designs Auto-Purge"
+                  />
+                </div>
+              </div>
+
+              {settings.enable_saved_designs_lifecycle && (
+                <div className="border-t border-rose-200 pt-4 space-y-5 bg-white/70 p-4 rounded-xl border border-rose-100">
+                  {/* Retention Window (X days) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-rose-600" /> Retention Window (Auto-Purge after X days)
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min="14"
+                          max="365"
+                          value={settings.saved_designs_retention_days || 90}
+                          onChange={(e) => {
+                            const val = Math.max(1, Math.min(3650, parseInt(e.target.value, 10) || 1));
+                            setSettings({ ...settings, saved_designs_retention_days: val });
+                          }}
+                          className="w-16 px-2 py-0.5 text-xs font-bold text-center rounded-lg border border-slate-300 bg-white text-slate-800 shadow-2xs focus:ring-1 focus:ring-rose-500 focus:outline-none"
+                        />
+                        <span className="text-xs font-bold text-slate-600">Days</span>
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="5"
+                      step="1"
+                      value={getClosestPresetIndex(settings.saved_designs_retention_days, SAVED_DESIGNS_RETENTION_PRESETS, 3)}
+                      onChange={(e) => {
+                        const idx = parseInt(e.target.value, 10);
+                        setSettings({ ...settings, saved_designs_retention_days: SAVED_DESIGNS_RETENTION_PRESETS[idx] });
+                      }}
+                      className="w-full h-2 bg-rose-200 rounded-lg appearance-none cursor-pointer accent-rose-600"
+                    />
+                    <div className="flex justify-between text-xs text-slate-500 mt-1.5 select-none">
+                      {SAVED_DESIGNS_RETENTION_PRESETS.map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => setSettings({ ...settings, saved_designs_retention_days: d })}
+                          className={`cursor-pointer hover:text-slate-800 transition ${settings.saved_designs_retention_days === d ? 'font-bold text-rose-700' : 'text-slate-400'}`}
+                        >
+                          {d === 90 ? `${d}d (Default)` : `${d}d`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Pre-Purge Warning Window (Y days) */}
+                  <div className="border-t border-rose-100 pt-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-600" /> Customer Warning Window (Show Warning &amp; Email Y days prior)
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min="1"
+                          max="60"
+                          value={settings.saved_designs_warning_days || 7}
+                          onChange={(e) => {
+                            const val = Math.max(1, Math.min(60, parseInt(e.target.value, 10) || 1));
+                            setSettings({ ...settings, saved_designs_warning_days: val });
+                          }}
+                          className="w-16 px-2 py-0.5 text-xs font-bold text-center rounded-lg border border-slate-300 bg-white text-slate-800 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                        />
+                        <span className="text-xs font-bold text-slate-600">Days</span>
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="4"
+                      step="1"
+                      value={getClosestPresetIndex(settings.saved_designs_warning_days, SAVED_DESIGNS_WARNING_PRESETS, 2)}
+                      onChange={(e) => {
+                        const idx = parseInt(e.target.value, 10);
+                        setSettings({ ...settings, saved_designs_warning_days: SAVED_DESIGNS_WARNING_PRESETS[idx] });
+                      }}
+                      className="w-full h-2 bg-amber-200 rounded-lg appearance-none cursor-pointer accent-amber-600"
+                    />
+                    <div className="flex justify-between text-xs text-slate-500 mt-1.5 select-none">
+                      {SAVED_DESIGNS_WARNING_PRESETS.map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => setSettings({ ...settings, saved_designs_warning_days: d })}
+                          className={`cursor-pointer hover:text-slate-800 transition ${settings.saved_designs_warning_days === d ? 'font-bold text-amber-700' : 'text-slate-400'}`}
+                        >
+                          {d === 7 ? `${d}d (Default)` : `${d}d`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Customer Email Notifications Toggles */}
+                  <div className="border-t border-rose-100 pt-3 space-y-3">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-2.5">
+                        <ToggleSwitch
+                          checked={settings.saved_designs_send_warning_email}
+                          onChange={(val) => setSettings({ ...settings, saved_designs_send_warning_email: val })}
+                          activeColor="bg-amber-600"
+                          size="sm"
+                          ariaLabel="Send Warning Email Before Purge"
+                        />
+                        <div>
+                          <span className="text-xs font-bold text-slate-800">
+                            Send customer warning email {settings.saved_designs_warning_days || 7} days before scheduled purge
+                          </span>
+                          <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                            Sends an email notifying the customer their design is expiring soon, with a direct link to their saved designs account area. Tracked to ensure no duplicate spam.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start justify-between gap-4 border-t border-slate-100 pt-3">
+                      <div className="flex items-start gap-2.5">
+                        <ToggleSwitch
+                          checked={settings.saved_designs_send_purge_email}
+                          onChange={(val) => setSettings({ ...settings, saved_designs_send_purge_email: val })}
+                          activeColor="bg-rose-600"
+                          size="sm"
+                          ariaLabel="Send Notification Email After Purge"
+                        />
+                        <div>
+                          <span className="text-xs font-bold text-slate-800">
+                            Send customer notification email when design is purged
+                          </span>
+                          <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                            Sends a confirmation notice informing the customer their design reached the retention limit and was removed, with a button inviting them to create a new project.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Loco Translate & Zero-Core-Edits Guarantee Box */}
+                  <div className="p-3 bg-rose-50/80 rounded-lg border border-rose-200/70 text-[11px] text-rose-950 leading-relaxed">
+                    🌐 <strong>Loco Translate &amp; Customization Ready:</strong> Frontend account notices, countdown badges, and all email templates use standard WordPress gettext functions (<code>nbd-s3-offload</code> domain). You can translate, rename, or customize every single phrase directly in Loco Translate with <strong>zero modifications</strong> to NBDesigner core files.
+                  </div>
+                </div>
+              )}
+            </div>
+
               {/* Activity Log Protection Configuration */}
               <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
                 <div className="flex items-center justify-between gap-4">
@@ -2451,6 +2687,11 @@ export default function App() {
                       <Folder className="w-3.5 h-3.5 text-slate-500" /> Total on Local SSD: {Number(stats.total_local_folders || stats.local_designs_count || 0).toLocaleString()} folders
                     </span>
                   )}
+                  {stats?.saved_designs && (
+                    <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold rounded-full">
+                      <Bookmark className="w-3.5 h-3.5 text-rose-500" /> Saved Designs: {stats.saved_designs.total || 0} ({stats.saved_designs.expired || 0} expired)
+                    </span>
+                  )}
                   <button
                     onClick={() => fetchStats(true)}
                     disabled={loading}
@@ -2556,6 +2797,41 @@ export default function App() {
                 >
                   {sweeping ? <RefreshCw className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
                   {sweeping ? 'Sweeping...' : 'Run Cold Sweep Now'}
+                </button>
+              </div>
+
+              {/* Customer Saved Designs Retention Sweep Action */}
+              <div className="p-5 bg-gradient-to-r from-rose-50 to-orange-50 rounded-2xl border border-rose-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-rose-600 text-white shadow-2xs">
+                      Saved Designs Sweep
+                    </span>
+                    <h4 className="text-sm font-bold text-slate-900">Purge Expired Customer Saved Designs</h4>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-1">
+                    Purges customer saved designs older than {settings.saved_designs_retention_days || 90} days from database and storage, and sends purge notification emails.
+                  </p>
+                  <div className="flex items-center gap-3 mt-2 flex-wrap text-xs font-medium">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-rose-200 rounded-lg text-slate-700">
+                      <Bookmark className="w-3.5 h-3.5 text-rose-600" /> Total Saved: <strong>{stats?.saved_designs?.total ?? 0}</strong>
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 border border-amber-200 rounded-lg text-amber-800">
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-600" /> Expiring Soon (&le; {settings.saved_designs_warning_days || 7}d): <strong>{stats?.saved_designs?.expiring_soon ?? 0}</strong>
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-100 border border-rose-300 rounded-lg text-rose-900">
+                      <Trash2 className="w-3.5 h-3.5 text-rose-700" /> Expired &amp; Ready to Purge: <strong>{stats?.saved_designs?.expired ?? 0}</strong>
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handlePurgeSavedDesignsNow}
+                  disabled={purgingSavedDesigns}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-semibold shadow-sm transition whitespace-nowrap text-xs sm:text-sm cursor-pointer self-start md:self-center"
+                >
+                  {purgingSavedDesigns ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  {purgingSavedDesigns ? 'Purging Expired...' : 'Purge Expired Saved Designs Now'}
                 </button>
               </div>
             </div>

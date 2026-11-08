@@ -38,6 +38,12 @@ class NBD_S3_Settings {
             'default_object_acl'         => 'public-read', // Object ACL: 'public-read' (DigitalOcean Spaces/CDN), 'private', or 'none' (AWS Bucket-Owner Enforced)
             'delete_remote_on_restore'   => true, // Delete remote S3 copy after verified local restore (frees S3 storage)
             'font_cache_max_age'         => 2592000, // 30 days
+            // Customer Saved Designs Lifecycle Policy:
+            'enable_saved_designs_lifecycle'   => false, // Master switch for Customer Saved Designs auto-purge
+            'saved_designs_retention_days'     => 90, // Purge customer saved designs after X days (default: 90 days)
+            'saved_designs_warning_days'       => 7,  // Display warning & send email Y days before purge (default: 7 days)
+            'saved_designs_send_warning_email' => true, // Dispatch warning email to customer Y days prior
+            'saved_designs_send_purge_email'   => true, // Dispatch notification email when design is purged
             // Safety & Sync Master Controls:
             'sync_paused'                => true, // Master Kill-Switch: Paused by default on activation
             'sync_schedule_time'         => '03:00', // Daily sync scheduled run time (24h HH:MM)
@@ -142,6 +148,11 @@ class NBD_S3_Settings {
             'default_object_acl'         => in_array( $data['default_object_acl'] ?? '', array( 'public-read', 'private', 'none' ), true ) ? $data['default_object_acl'] : 'public-read',
             'delete_remote_on_restore'   => ! empty( $data['delete_remote_on_restore'] ),
             'font_cache_max_age'         => max( 3600, absint( $data['font_cache_max_age'] ?? $current['font_cache_max_age'] ) ),
+            'enable_saved_designs_lifecycle'   => ! empty( $data['enable_saved_designs_lifecycle'] ),
+            'saved_designs_retention_days'     => max( 1, min( 3650, absint( $data['saved_designs_retention_days'] ?? $current['saved_designs_retention_days'] ?? 90 ) ) ),
+            'saved_designs_warning_days'       => max( 1, min( 60, absint( $data['saved_designs_warning_days'] ?? $current['saved_designs_warning_days'] ?? 7 ) ) ),
+            'saved_designs_send_warning_email' => ! empty( $data['saved_designs_send_warning_email'] ),
+            'saved_designs_send_purge_email'   => ! empty( $data['saved_designs_send_purge_email'] ),
             'sync_paused'                => isset( $data['sync_paused'] ) ? ! empty( $data['sync_paused'] ) : ( $current['sync_paused'] ?? true ),
             'sync_schedule_time'         => sanitize_text_field( $data['sync_schedule_time'] ?? $current['sync_schedule_time'] ?? '03:00' ),
             'enable_activity_log'        => isset( $data['enable_activity_log'] ) ? ! empty( $data['enable_activity_log'] ) : ( $current['enable_activity_log'] ?? true ),
