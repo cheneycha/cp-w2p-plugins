@@ -867,17 +867,17 @@ class NBD_S3_Tier_Lifecycle {
     /**
      * Run daily sweep for cold orders eligible for S3 offload.
      */
-    public static function run_cold_sweep(): void {
+    public static function run_cold_sweep(): int {
         $settings = NBD_S3_Settings::get_all();
 
         // Safety Kill-Switch: Skip if syncing is paused by admin
         if ( ! empty( $settings['sync_paused'] ) ) {
             NBD_S3_Logger::log( 'SWEEP', __( 'Automated Cold Sweep skipped because sync is paused.', 'nbd-s3-offload' ), array(), 'warning' );
-            return;
+            return 0;
         }
 
         if ( empty( $settings['enable_cold_order_offload'] ) ) {
-            return;
+            return 0;
         }
 
         // Set running state indicator
@@ -902,6 +902,8 @@ class NBD_S3_Tier_Lifecycle {
             ) );
 
             if ( ! empty( $orders ) ) {
+                $use_async = function_exists( 'as_enqueue_async_action' );
+
                 foreach ( $orders as $order_id ) {
                     $order = wc_get_order( $order_id );
                     if ( ! $order ) {
@@ -914,20 +916,33 @@ class NBD_S3_Tier_Lifecycle {
                         if ( ! empty( $item_key ) ) {
                             $already_offloaded = $item->get_meta( '_nbd_s3_offloaded' );
                             if ( empty( $already_offloaded ) ) {
-                                $res = self::process_single_offload( $item_key, $order_id );
-                                if ( ! empty( $res['success'] ) ) {
+                                if ( $use_async ) {
+                                    // Dispatch as an isolated background task in Action Scheduler (no HTTP timeout)
+                                    as_enqueue_async_action( 'nbd_s3_async_offload_item', array( $item_key, $order_id ) );
                                     $processed++;
+                                } else {
+                                    @set_time_limit( 120 );
+                                    $res = self::process_single_offload( $item_key, $order_id );
+                                    if ( ! empty( $res['success'] ) ) {
+                                        $processed++;
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            NBD_S3_Logger::log( 'SWEEP', sprintf( 'Automated Cold Sweep completed. Offloaded %d design items.', $processed ), array( 'processed' => $processed ), 'success' );
+                if ( ! empty( $use_async ) && $processed > 0 ) {
+                    NBD_S3_Logger::log( 'SWEEP', sprintf( 'Cold Sweep dispatched %d design items to Action Scheduler background queue.', $processed ), array( 'queued' => $processed ), 'info' );
+                } else {
+                    NBD_S3_Logger::log( 'SWEEP', sprintf( 'Cold Sweep completed. Offloaded %d design items.', $processed ), array( 'processed' => $processed ), 'success' );
+                }
+            }
         } finally {
             delete_transient( 'nbd_s3_sync_status' );
         }
+
+        return $processed;
     }
 
     /**

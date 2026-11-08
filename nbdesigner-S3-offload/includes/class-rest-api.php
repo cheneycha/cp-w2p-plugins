@@ -194,10 +194,15 @@ class NBD_S3_REST_API {
      * POST /sweep-now
      */
     public static function trigger_cold_sweep( \WP_REST_Request $request ): \WP_REST_Response {
-        NBD_S3_Tier_Lifecycle::run_cold_sweep();
+        $queued = NBD_S3_Tier_Lifecycle::run_cold_sweep();
+        $msg = function_exists( 'as_enqueue_async_action' )
+            ? sprintf( __( 'Cold storage sweep task initiated. %d design items queued for background offload.', 'nbd-s3-offload' ), $queued )
+            : sprintf( __( 'Cold storage sweep executed. %d design items processed.', 'nbd-s3-offload' ), $queued );
+
         return new \WP_REST_Response( array(
-            'success' => true,
-            'message' => __( 'Cold storage sweep task executed.', 'nbd-s3-offload' ),
+            'success'         => true,
+            'message'         => $msg,
+            'processed_count' => $queued,
         ), 200 );
     }
 

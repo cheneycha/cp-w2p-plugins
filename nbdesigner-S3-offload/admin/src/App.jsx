@@ -525,9 +525,9 @@ export default function App() {
         method: 'POST',
         headers: getHeaders(),
       });
-      const data = await res.json();
+      const data = await safeJson(res);
       if (res.ok && data.success) {
-        showNotice('success', `${data.message} Processed ${data.processed_count} folders.`);
+        showNotice('success', data.message || `Sweep executed. Processed ${data.processed_count || 0} folders.`);
         fetchStats();
         fetchExplorerFolders();
       } else {
@@ -550,7 +550,7 @@ export default function App() {
         method: 'POST',
         headers: getHeaders(),
       });
-      const data = await res.json();
+      const data = await safeJson(res);
       if (res.ok && data.success) {
         showNotice('success', data.message);
         fetchStats();
@@ -806,7 +806,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.1.3'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.1.4'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">
