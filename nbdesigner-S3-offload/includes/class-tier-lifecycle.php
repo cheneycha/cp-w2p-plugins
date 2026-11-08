@@ -430,6 +430,7 @@ class NBD_S3_Tier_Lifecycle {
         }
 
         delete_transient( 'nbd_s3_explorer_dirs_v2' );
+        delete_transient( 'nbd_s3_tier2_active_count' );
         self::record_folder_restored( $item_key );
 
         if ( is_dir( $local_dir ) && file_exists( $local_dir . '/.s3_offloaded' ) ) {
@@ -535,12 +536,31 @@ class NBD_S3_Tier_Lifecycle {
         }
 
         delete_transient( 'nbd_s3_explorer_dirs_v2' );
+        delete_transient( 'nbd_s3_tier2_active_count' );
         NBD_S3_Logger::log( 'WHITELIST_RESTORE', sprintf( 'Restored %d whitelisted admin templates to local SSD (%d already local).', $restored, $already_local ), array( 'restored' => $restored, 'already_local' => $already_local ), 'info' );
         return array(
             'total'         => count( $folders ),
             'restored'      => $restored,
             'already_local' => $already_local,
         );
+    }
+
+    /**
+     * Get count of Tier 2 active local design orders (< retention threshold).
+     */
+    public static function get_tier2_active_count( bool $force_refresh = false ): int {
+        if ( ! $force_refresh ) {
+            $cached_count = get_transient( 'nbd_s3_tier2_active_count' );
+            if ( false !== $cached_count ) {
+                return (int) $cached_count;
+            }
+        }
+
+        $res   = self::get_design_folders_explorer( 0, 0, 'active', $force_refresh, '' );
+        $count = (int) ( $res['total'] ?? 0 );
+
+        set_transient( 'nbd_s3_tier2_active_count', $count, 300 );
+        return $count;
     }
 
     /**
@@ -1077,6 +1097,7 @@ class NBD_S3_Tier_Lifecycle {
         }
 
         delete_transient( 'nbd_s3_explorer_dirs_v2' );
+        delete_transient( 'nbd_s3_tier2_active_count' );
         NBD_S3_Logger::log( 'OFFLOAD', sprintf( 'Offloaded %s (%d files) to S3.', $item_key, $uploaded ), array( 'folder' => $item_key, 'files' => $uploaded, 'purge_mode' => $purge_mode ), 'success' );
 
         return array(

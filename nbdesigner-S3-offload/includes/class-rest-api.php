@@ -268,10 +268,16 @@ class NBD_S3_REST_API {
             $templates_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$templates_table}" );
         }
 
+        $force_refresh      = ! empty( $request->get_param( 'force' ) );
+        $tier2_active_count = NBD_S3_Tier_Lifecycle::get_tier2_active_count( $force_refresh );
+
         return new \WP_REST_Response( array(
             'success' => true,
             'stats'   => array(
+                'total_local_folders'    => $local_designs_count,
                 'local_designs_count'    => $local_designs_count,
+                'tier2_active_count'     => $tier2_active_count,
+                'active_orders_count'    => $tier2_active_count,
                 'local_fonts_count'      => $local_fonts_count,
                 'local_fonts_size'       => size_format( $local_fonts_bytes ),
                 'offloaded_orders_count' => $offloaded_orders_count,
