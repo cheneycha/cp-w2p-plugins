@@ -268,6 +268,29 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Relocate any stray WordPress notices out of #nbd-s3-offload-root to the top notices container
+    const relocateStrayNotices = () => {
+      const root = document.getElementById('nbd-s3-offload-root');
+      const container = document.getElementById('nbd-s3-notices-container');
+      if (!root || !container) return;
+
+      const strayNotices = root.querySelectorAll('.notice, div.updated, div.error');
+      strayNotices.forEach((notice) => {
+        container.appendChild(notice);
+      });
+    };
+
+    relocateStrayNotices();
+
+    const rootEl = document.getElementById('nbd-s3-offload-root');
+    let observer = null;
+    if (rootEl && window.MutationObserver) {
+      observer = new MutationObserver(() => {
+        relocateStrayNotices();
+      });
+      observer.observe(rootEl, { childList: true, subtree: true });
+    }
+
     fetchSettings();
     fetchStats();
     fetchConnectionStatus(false);
@@ -278,7 +301,11 @@ export default function App() {
     const interval = setInterval(() => {
       fetchStats();
     }, 15000);
-    return () => clearInterval(interval);
+
+    return () => {
+      clearInterval(interval);
+      if (observer) observer.disconnect();
+    };
   }, []);
 
   const showNotice = (type, message) => {
@@ -899,7 +926,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.2.3'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.2.4'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">

@@ -103,6 +103,9 @@ class NBD_S3_Admin {
     public static function render_admin_page(): void {
         ?>
         <div class="wrap" id="nbd-s3-admin-wrap">
+            <h1 class="screen-reader-text"><?php esc_html_e( 'NBDesigner S3 Offload', 'nbd-s3-offload' ); ?></h1>
+            <hr class="wp-header-end" style="display:none; margin:0; border:0;">
+            <div id="nbd-s3-notices-container" class="nbd-s3-notices-container"></div>
             <div id="nbd-s3-offload-root">
                 <div style="padding: 40px 20px; text-align: center; color: #64748b; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
                     <div style="font-size: 28px; font-weight: 600; color: #0f172a; margin-bottom: 8px;">NBDesigner S3 Offload</div>
@@ -110,6 +113,34 @@ class NBD_S3_Admin {
                 </div>
             </div>
         </div>
+        <script>
+            (function() {
+                function relocateWpNotices() {
+                    var container = document.getElementById('nbd-s3-notices-container');
+                    if (!container) return;
+                    var wpbody = document.getElementById('wpbody-content');
+                    if (!wpbody) return;
+
+                    // Collect all standard WordPress notices
+                    var notices = wpbody.querySelectorAll('.notice, div.updated, div.error');
+                    for (var i = 0; i < notices.length; i++) {
+                        var notice = notices[i];
+                        if (notice.closest('#nbd-s3-notices-container')) continue;
+                        if (notice.classList.contains('inline') && !notice.closest('#nbd-s3-offload-root')) continue;
+                        container.appendChild(notice);
+                    }
+                }
+
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', relocateWpNotices);
+                } else {
+                    relocateWpNotices();
+                }
+                window.addEventListener('load', relocateWpNotices);
+                setTimeout(relocateWpNotices, 300);
+                setTimeout(relocateWpNotices, 1000);
+            })();
+        </script>
         <?php
     }
 }

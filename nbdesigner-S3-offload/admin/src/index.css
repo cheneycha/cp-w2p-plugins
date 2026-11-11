@@ -5,6 +5,25 @@
   --primary-hover: #4338ca;
 }
 
+/* WordPress notices container at top of page, outside and above S3 Offload header */
+#nbd-s3-notices-container {
+  max-width: 1200px;
+  margin: 16px 20px 0 0;
+  box-sizing: border-box;
+}
+
+#nbd-s3-notices-container:empty {
+  display: none !important;
+  margin: 0 !important;
+}
+
+#nbd-s3-notices-container .notice,
+#nbd-s3-notices-container div.updated,
+#nbd-s3-notices-container div.error {
+  margin: 8px 0 12px 0 !important;
+  box-sizing: border-box;
+}
+
 #nbd-s3-offload-root {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
   color: #1e293b;
