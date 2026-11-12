@@ -824,11 +824,12 @@ class NBD_S3_Tier_Lifecycle {
     }
 
     /**
-     * Get eligible aged non-template folders for batch testing.
+     * Get eligible aged non-template folders for batch testing or sweep queuing.
      */
     public static function get_eligible_batch_folders( int $count = 3 ): array {
-        $explorer = self::get_design_folders_explorer( 200, 0, 'aged' );
-        $eligible = array();
+        $fetch_limit = max( 200, $count * 3 );
+        $explorer    = self::get_design_folders_explorer( $fetch_limit, 0, 'aged' );
+        $eligible    = array();
 
         if ( ! empty( $explorer['folders'] ) ) {
             foreach ( $explorer['folders'] as $item ) {
@@ -913,54 +914,70 @@ class NBD_S3_Tier_Lifecycle {
 
         $processed = 0;
         try {
-            $days       = $settings['cold_retention_days'];
-            $cutoff_ts  = time() - ( $days * DAY_IN_SECONDS );
-            $cutoff_str = gmdate( 'Y-m-d H:i:s', $cutoff_ts );
+            $use_async = function_exists( 'as_enqueue_async_action' );
 
-            // Query completed orders older than retention threshold
-            $orders = wc_get_orders( array(
-                'status'        => array( 'wc-completed' ),
-                'date_created'  => '<' . $cutoff_ts,
-                'limit'         => 30,
-                'return'        => 'ids',
-            ) );
+            // 1. Direct candidate discovery from aged candidate pool (matches Explorer Tier 3 Candidate filter)
+            $batch_limit = 50;
+            $candidates  = self::get_eligible_batch_folders( $batch_limit );
 
-            if ( ! empty( $orders ) ) {
-                $use_async = function_exists( 'as_enqueue_async_action' );
-
-                foreach ( $orders as $order_id ) {
-                    $order = wc_get_order( $order_id );
-                    if ( ! $order ) {
-                        continue;
+            if ( ! empty( $candidates ) ) {
+                foreach ( $candidates as $item_key ) {
+                    if ( $use_async ) {
+                        as_enqueue_async_action( 'nbd_s3_async_offload_item', array( $item_key, 0 ) );
+                        $processed++;
+                    } else {
+                        @set_time_limit( 120 );
+                        $res = self::process_single_offload( $item_key, 0, false );
+                        if ( ! empty( $res['success'] ) ) {
+                            $processed++;
+                        }
                     }
+                }
+            } else {
+                // 2. Fallback check for WooCommerce orders older than retention threshold
+                $days       = (int) ( $settings['cold_retention_days'] ?? 14 );
+                $cutoff_ts  = time() - ( $days * DAY_IN_SECONDS );
+                $orders     = wc_get_orders( array(
+                    'status'        => array( 'wc-completed', 'completed' ),
+                    'date_created'  => '<' . $cutoff_ts,
+                    'limit'         => 30,
+                    'return'        => 'ids',
+                ) );
 
-                    foreach ( $order->get_items() as $item_id => $item ) {
-                        $item_key = $item->get_meta( '_nbd' ) ?: $item->get_meta( '_nbd_item_key' );
+                if ( ! empty( $orders ) ) {
+                    foreach ( $orders as $order_id ) {
+                        $order = wc_get_order( $order_id );
+                        if ( ! $order ) {
+                            continue;
+                        }
 
-                        if ( ! empty( $item_key ) ) {
-                            $already_offloaded = $item->get_meta( '_nbd_s3_offloaded' );
-                            if ( empty( $already_offloaded ) ) {
-                                if ( $use_async ) {
-                                    // Dispatch as an isolated background task in Action Scheduler (no HTTP timeout)
-                                    as_enqueue_async_action( 'nbd_s3_async_offload_item', array( $item_key, $order_id ) );
-                                    $processed++;
-                                } else {
-                                    @set_time_limit( 120 );
-                                    $res = self::process_single_offload( $item_key, $order_id );
-                                    if ( ! empty( $res['success'] ) ) {
+                        foreach ( $order->get_items() as $item_id => $item ) {
+                            $item_key = $item->get_meta( '_nbd' ) ?: $item->get_meta( '_nbd_item_key' );
+
+                            if ( ! empty( $item_key ) ) {
+                                $already_offloaded = $item->get_meta( '_nbd_s3_offloaded' );
+                                if ( empty( $already_offloaded ) ) {
+                                    if ( $use_async ) {
+                                        as_enqueue_async_action( 'nbd_s3_async_offload_item', array( $item_key, $order_id ) );
                                         $processed++;
+                                    } else {
+                                        @set_time_limit( 120 );
+                                        $res = self::process_single_offload( $item_key, $order_id, false );
+                                        if ( ! empty( $res['success'] ) ) {
+                                            $processed++;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
+            }
 
-                if ( ! empty( $use_async ) && $processed > 0 ) {
-                    NBD_S3_Logger::log( 'SWEEP', sprintf( 'Cold Sweep dispatched %d design items to Action Scheduler background queue.', $processed ), array( 'queued' => $processed ), 'info' );
-                } else {
-                    NBD_S3_Logger::log( 'SWEEP', sprintf( 'Cold Sweep completed. Offloaded %d design items.', $processed ), array( 'processed' => $processed ), 'success' );
-                }
+            if ( ! empty( $use_async ) && $processed > 0 ) {
+                NBD_S3_Logger::log( 'SWEEP', sprintf( 'Cold Sweep dispatched %d design items to Action Scheduler background queue.', $processed ), array( 'queued' => $processed ), 'info' );
+            } elseif ( $processed > 0 ) {
+                NBD_S3_Logger::log( 'SWEEP', sprintf( 'Cold Sweep completed. Offloaded %d design items.', $processed ), array( 'processed' => $processed ), 'success' );
             }
         } finally {
             delete_transient( 'nbd_s3_sync_status' );
