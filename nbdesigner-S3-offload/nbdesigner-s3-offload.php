@@ -2,7 +2,7 @@
 /**
  * Plugin Name: NBDesigner S3 Offload
  * Description: Offload NBDesigner design assets, print PDFs, and large fonts to S3-compatible object storage (Wasabi, Backblaze B2, Bunny, DigitalOcean, AWS) with CDN delivery and tiered lifecycle archiving.
- * Version: 0.2.5
+ * Version: 0.2.7
  * Author: Cheney Chang
  * Text Domain: nbd-s3-offload
  * Domain Path: /languages
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define Constants
-define( 'NBD_S3_VERSION', '0.2.5' );
+define( 'NBD_S3_VERSION', '0.2.7' );
 define( 'NBD_S3_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'NBD_S3_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'NBD_S3_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -135,7 +135,10 @@ register_deactivation_hook( __FILE__, function() {
     // Clear scheduled actions if any
     if ( function_exists( 'as_unschedule_all_actions' ) ) {
         as_unschedule_all_actions( 'nbd_s3_cron_cold_sweep' );
+        as_unschedule_all_actions( 'nbd_s3_chain_cold_sweep' );
+        as_unschedule_all_actions( 'nbd_s3_async_offload_item' );
         as_unschedule_all_actions( 'nbd_s3_cron_cleanup_drafts' );
+        as_unschedule_all_actions( 'nbd_s3_chain_cleanup_drafts' );
         as_unschedule_all_actions( 'nbd_s3_cron_saved_designs_lifecycle' );
     }
 } );

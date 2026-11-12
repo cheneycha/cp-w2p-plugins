@@ -66,6 +66,12 @@ class NBD_S3_REST_API {
             'permission_callback' => array( __CLASS__, 'check_permission' ),
         ) );
 
+        register_rest_route( self::NAMESPACE, '/drafts/cleanup-now', array(
+            'methods'             => \WP_REST_Server::CREATABLE,
+            'callback'            => array( __CLASS__, 'trigger_draft_cleanup' ),
+            'permission_callback' => array( __CLASS__, 'check_permission' ),
+        ) );
+
         register_rest_route( self::NAMESPACE, '/whitelist/restore-all', array(
             'methods'             => \WP_REST_Server::CREATABLE,
             'callback'            => array( __CLASS__, 'restore_whitelisted_templates' ),
@@ -212,15 +218,72 @@ class NBD_S3_REST_API {
      * POST /sweep-now
      */
     public static function trigger_cold_sweep( \WP_REST_Request $request ): \WP_REST_Response {
+        $settings = NBD_S3_Settings::get_all();
+        if ( ! empty( $settings['sync_paused'] ) ) {
+            return new \WP_REST_Response( array(
+                'success'         => false,
+                'message'         => __( 'Cannot start Cold Sweep: Sync is Paused (Safe Mode is Active). Please resume sync in the top header first.', 'nbd-s3-offload' ),
+                'processed_count' => 0,
+            ), 400 );
+        }
+
+        $is_already_running = function_exists( 'as_has_scheduled_action' ) && (
+            as_has_scheduled_action( 'nbd_s3_async_offload_item' ) ||
+            as_has_scheduled_action( 'nbd_s3_chain_cold_sweep' )
+        );
+
+        if ( $is_already_running ) {
+            return new \WP_REST_Response( array(
+                'success'         => true,
+                'message'         => __( 'Cold sweep is already actively running in the background with auto-chaining.', 'nbd-s3-offload' ),
+                'processed_count' => 0,
+            ), 200 );
+        }
+
         $queued = NBD_S3_Tier_Lifecycle::run_cold_sweep();
         $msg = function_exists( 'as_enqueue_async_action' )
-            ? sprintf( __( 'Cold storage sweep task initiated. %d design items queued for background offload.', 'nbd-s3-offload' ), $queued )
+            ? sprintf( __( 'Cold storage sweep initiated with auto-chaining. Batch of %d design items queued; background runner will automatically continue until all aged items are offloaded.', 'nbd-s3-offload' ), $queued )
             : sprintf( __( 'Cold storage sweep executed. %d design items processed.', 'nbd-s3-offload' ), $queued );
 
         return new \WP_REST_Response( array(
             'success'         => true,
             'message'         => $msg,
             'processed_count' => $queued,
+        ), 200 );
+    }
+
+    /**
+     * POST /drafts/cleanup-now
+     */
+    public static function trigger_draft_cleanup( \WP_REST_Request $request ): \WP_REST_Response {
+        $settings = NBD_S3_Settings::get_all();
+        if ( ! empty( $settings['sync_paused'] ) ) {
+            return new \WP_REST_Response( array(
+                'success'         => false,
+                'message'         => __( 'Cannot start Draft Cleanup: Sync is Paused (Safe Mode is Active). Please resume sync in the top header first.', 'nbd-s3-offload' ),
+                'processed_count' => 0,
+            ), 400 );
+        }
+
+        $is_already_running = function_exists( 'as_has_scheduled_action' ) && as_has_scheduled_action( 'nbd_s3_chain_cleanup_drafts' );
+
+        if ( $is_already_running ) {
+            return new \WP_REST_Response( array(
+                'success'         => true,
+                'message'         => __( 'Abandoned draft cleanup is already actively running in the background with auto-chaining.', 'nbd-s3-offload' ),
+                'processed_count' => 0,
+            ), 200 );
+        }
+
+        $deleted = NBD_S3_Tier_Lifecycle::run_draft_cleanup( 500 );
+        $msg = ( $deleted >= 500 && function_exists( 'as_schedule_single_action' ) )
+            ? sprintf( __( 'Abandoned draft cleanup initiated with auto-chaining. First batch of %d folders purged; background runner will continue automatically in 10-second intervals until all abandoned drafts are cleared.', 'nbd-s3-offload' ), $deleted )
+            : sprintf( __( 'Abandoned draft cleanup completed. %d folders purged.', 'nbd-s3-offload' ), $deleted );
+
+        return new \WP_REST_Response( array(
+            'success'         => true,
+            'message'         => $msg,
+            'processed_count' => $deleted,
         ), 200 );
     }
 
@@ -412,6 +475,8 @@ class NBD_S3_REST_API {
         if ( $new_pause_state ) {
             if ( function_exists( 'as_unschedule_all_actions' ) ) {
                 as_unschedule_all_actions( 'nbd_s3_async_offload_item' );
+                as_unschedule_all_actions( 'nbd_s3_chain_cold_sweep' );
+                as_unschedule_all_actions( 'nbd_s3_chain_cleanup_drafts' );
             }
             delete_transient( 'nbd_s3_sync_status' );
         }

@@ -227,6 +227,7 @@ export default function App() {
   const [testing, setTesting] = useState(false);
   const [syncingFonts, setSyncingFonts] = useState(false);
   const [sweeping, setSweeping] = useState(false);
+  const [cleaningDrafts, setCleaningDrafts] = useState(false);
   const [purgingSavedDesigns, setPurgingSavedDesigns] = useState(false);
   const [restoringTemplates, setRestoringTemplates] = useState(false);
   const [notice, setNotice] = useState(null);
@@ -618,6 +619,34 @@ export default function App() {
     }
   };
 
+  const handleCleanupDraftsNow = async () => {
+    const retentionDays = settings.abandoned_drafts_days || 7;
+    const confirmMsg = `Run manual purge for abandoned guest drafts now?\n\nThis will safely purge orphan guest draft folders older than ${retentionDays} days that have no WooCommerce order, no saved customer account record, and are not in any active cart.\n\nProcessing runs automatically in safe 500-folder batches via Action Scheduler until all abandoned drafts are cleared. Proceed?`;
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+    setCleaningDrafts(true);
+    try {
+      const res = await fetch(`${config.restUrl}/drafts/cleanup-now`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+      const data = await safeJson(res);
+      if (res.ok && data.success) {
+        showNotice('success', data.message || `Draft cleanup initiated. Purged ${data.processed_count || 0} folders.`);
+        fetchStats(true);
+        fetchLogs();
+        fetchExplorerFolders();
+      } else {
+        showNotice('error', data.message || 'Draft cleanup failed.');
+      }
+    } catch (err) {
+      showNotice('error', 'Draft cleanup error: ' + err.message);
+    } finally {
+      setCleaningDrafts(false);
+    }
+  };
+
   const handleRestoreWhitelistedTemplates = async () => {
     if (!window.confirm('Scan all whitelisted admin templates in database and download any missing assets from S3 back to high-performance local SSD?')) {
       return;
@@ -926,7 +955,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.2.5'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.2.7'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">
@@ -2824,9 +2853,9 @@ export default function App() {
               {/* Manual Sweep Action */}
               <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h4 className="text-sm font-bold text-slate-900">Run Full Cold Storage Sweep</h4>
+                  <h4 className="text-sm font-bold text-slate-900">Run Full Cold Storage Sweep (Auto-Chaining)</h4>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Sweeps all completed orders older than {settings.cold_retention_days} days. (Runs automatically daily via Action Scheduler).
+                    Offloads all completed designs older than {settings.cold_retention_days} days to S3. Automatically chains batches of 50 via background Action Scheduler until all aged items are completed.
                   </p>
                 </div>
                 <button
@@ -2837,6 +2866,30 @@ export default function App() {
                 >
                   {sweeping ? <RefreshCw className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
                   {sweeping ? 'Sweeping...' : 'Run Cold Sweep Now'}
+                </button>
+              </div>
+
+              {/* Abandoned Guest Drafts Cleanup Action (Auto-Chaining) */}
+              <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-amber-600 text-white shadow-2xs">
+                      Tier 5 Draft Cleanup
+                    </span>
+                    <h4 className="text-sm font-bold text-slate-900">Purge Abandoned Guest Drafts (Auto-Chaining)</h4>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-1">
+                    Safely purges unclaimed guest draft folders older than {settings.abandoned_drafts_days || 7} days. Folders attached to orders, saved in customer accounts, or currently residing in active guest/user carts are 100% protected. Automatically self-chains in safe 500-folder batches via Action Scheduler.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCleanupDraftsNow}
+                  disabled={cleaningDrafts}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold shadow-sm transition whitespace-nowrap text-xs sm:text-sm cursor-pointer self-start md:self-center"
+                >
+                  {cleaningDrafts ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  {cleaningDrafts ? 'Purging Drafts...' : 'Clean Abandoned Drafts Now'}
                 </button>
               </div>
 

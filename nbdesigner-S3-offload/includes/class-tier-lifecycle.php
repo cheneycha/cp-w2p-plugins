@@ -37,8 +37,10 @@ class NBD_S3_Tier_Lifecycle {
 
         // Action Scheduler hooks for background tasks
         add_action( 'nbd_s3_cron_cold_sweep', array( __CLASS__, 'run_cold_sweep' ) );
+        add_action( 'nbd_s3_chain_cold_sweep', array( __CLASS__, 'run_cold_sweep' ) );
         add_action( 'nbd_s3_async_offload_item', array( __CLASS__, 'process_single_offload' ), 10, 2 );
         add_action( 'nbd_s3_cron_cleanup_drafts', array( __CLASS__, 'run_draft_cleanup' ) );
+        add_action( 'nbd_s3_chain_cleanup_drafts', array( __CLASS__, 'run_draft_cleanup' ) );
         add_action( 'nbd_s3_cron_saved_designs_lifecycle', array( __CLASS__, 'run_saved_designs_lifecycle' ) );
 
         // Customer Saved Designs Frontend UI hook (Loco Translate compatible)
@@ -830,9 +832,14 @@ class NBD_S3_Tier_Lifecycle {
         $fetch_limit = max( 200, $count * 3 );
         $explorer    = self::get_design_folders_explorer( $fetch_limit, 0, 'aged' );
         $eligible    = array();
+        $failed_map  = get_transient( 'nbd_s3_failed_folders' ) ?: array();
 
         if ( ! empty( $explorer['folders'] ) ) {
             foreach ( $explorer['folders'] as $item ) {
+                // Skip folders that have failed 3+ times recently to prevent infinite retries
+                if ( ! empty( $failed_map[ $item['folder'] ] ) && $failed_map[ $item['folder'] ] >= 3 ) {
+                    continue;
+                }
                 if ( ! $item['is_template'] && ! $item['is_offloaded'] ) {
                     $eligible[] = $item['folder'];
                     if ( count( $eligible ) >= $count ) {
@@ -905,6 +912,17 @@ class NBD_S3_Tier_Lifecycle {
             return 0;
         }
 
+        $use_async = function_exists( 'as_enqueue_async_action' );
+
+        // If using Action Scheduler, check if previous batch of offload items is still processing
+        if ( $use_async && function_exists( 'as_has_scheduled_action' ) && as_has_scheduled_action( 'nbd_s3_async_offload_item' ) ) {
+            // Queue still has pending items. Re-check in 15 seconds to continue auto-chaining.
+            if ( ! as_has_scheduled_action( 'nbd_s3_chain_cold_sweep' ) ) {
+                as_schedule_single_action( time() + 15, 'nbd_s3_chain_cold_sweep' );
+            }
+            return 0;
+        }
+
         // Set running state indicator
         set_transient( 'nbd_s3_sync_status', array(
             'running'    => true,
@@ -914,8 +932,6 @@ class NBD_S3_Tier_Lifecycle {
 
         $processed = 0;
         try {
-            $use_async = function_exists( 'as_enqueue_async_action' );
-
             // 1. Direct candidate discovery from aged candidate pool (matches Explorer Tier 3 Candidate filter)
             $batch_limit = 50;
             $candidates  = self::get_eligible_batch_folders( $batch_limit );
@@ -931,6 +947,13 @@ class NBD_S3_Tier_Lifecycle {
                         if ( ! empty( $res['success'] ) ) {
                             $processed++;
                         }
+                    }
+                }
+
+                // AUTO-CHAINING: Enqueue follow-up action to automatically process the next batch
+                if ( $use_async && function_exists( 'as_schedule_single_action' ) ) {
+                    if ( ! as_has_scheduled_action( 'nbd_s3_chain_cold_sweep' ) ) {
+                        as_schedule_single_action( time() + 15, 'nbd_s3_chain_cold_sweep' );
                     }
                 }
             } else {
@@ -971,11 +994,20 @@ class NBD_S3_Tier_Lifecycle {
                             }
                         }
                     }
+
+                    if ( $use_async && $processed > 0 && function_exists( 'as_schedule_single_action' ) ) {
+                        if ( ! as_has_scheduled_action( 'nbd_s3_chain_cold_sweep' ) ) {
+                            as_schedule_single_action( time() + 15, 'nbd_s3_chain_cold_sweep' );
+                        }
+                    }
+                } else {
+                    // No candidate folders or orders remaining: sweep is 100% complete!
+                    NBD_S3_Logger::log( 'SWEEP', __( 'Cold storage sweep complete! All aged design folders have been successfully offloaded to S3.', 'nbd-s3-offload' ), array(), 'success' );
                 }
             }
 
             if ( ! empty( $use_async ) && $processed > 0 ) {
-                NBD_S3_Logger::log( 'SWEEP', sprintf( 'Cold Sweep dispatched %d design items to Action Scheduler background queue.', $processed ), array( 'queued' => $processed ), 'info' );
+                NBD_S3_Logger::log( 'SWEEP', sprintf( 'Cold Sweep auto-chain: Queued batch of %d design items to Action Scheduler.', $processed ), array( 'queued' => $processed ), 'info' );
             } elseif ( $processed > 0 ) {
                 NBD_S3_Logger::log( 'SWEEP', sprintf( 'Cold Sweep completed. Offloaded %d design items.', $processed ), array( 'processed' => $processed ), 'success' );
             }
@@ -1043,6 +1075,10 @@ class NBD_S3_Tier_Lifecycle {
         }
 
         if ( $failed > 0 || 0 === $uploaded ) {
+            $failed_map = get_transient( 'nbd_s3_failed_folders' ) ?: array();
+            $failed_map[ $item_key ] = ( $failed_map[ $item_key ] ?? 0 ) + 1;
+            set_transient( 'nbd_s3_failed_folders', $failed_map, DAY_IN_SECONDS );
+
             $err_msg = sprintf( 'Failed to offload %d files to S3 for %s (%d uploaded).', $failed, $item_key, $uploaded );
             NBD_S3_Logger::log( 'OFFLOAD_ERROR', $err_msg, array( 'folder' => $item_key, 'failed' => $failed, 'uploaded' => $uploaded ), 'error' );
             return array(
@@ -1119,6 +1155,13 @@ class NBD_S3_Tier_Lifecycle {
 
         delete_transient( 'nbd_s3_explorer_dirs_v2' );
         delete_transient( 'nbd_s3_tier2_active_count' );
+
+        $failed_map = get_transient( 'nbd_s3_failed_folders' );
+        if ( ! empty( $failed_map[ $item_key ] ) ) {
+            unset( $failed_map[ $item_key ] );
+            set_transient( 'nbd_s3_failed_folders', $failed_map, DAY_IN_SECONDS );
+        }
+
         NBD_S3_Logger::log( 'OFFLOAD', sprintf( 'Offloaded %s (%d files) to S3.', $item_key, $uploaded ), array( 'folder' => $item_key, 'files' => $uploaded, 'purge_mode' => $purge_mode ), 'success' );
 
         return array(
@@ -1262,67 +1305,181 @@ class NBD_S3_Tier_Lifecycle {
 
     /**
      * Daily cleanup for abandoned guest draft folders older than threshold.
+     * Batched with Action Scheduler auto-chaining to safely process large archives (e.g. 50,000+ folders).
+     *
+     * @param int $batch_size Maximum folders to delete in this execution run. Defaults to 500.
+     * @return int Number of folders deleted in this run.
      */
-    public static function run_draft_cleanup(): void {
+    public static function run_draft_cleanup( int $batch_size = 500 ): int {
         global $wpdb;
         $settings = NBD_S3_Settings::get_all();
-        if ( ! empty( $settings['sync_paused'] ) || empty( $settings['cleanup_abandoned_drafts'] ) ) {
-            return;
+
+        // Safety Kill-Switch: Skip if syncing is paused by admin or cleanup disabled
+        if ( ! empty( $settings['sync_paused'] ) ) {
+            NBD_S3_Logger::log( 'DRAFT_CLEANUP', __( 'Draft cleanup skipped because sync is paused (Safe Mode active).', 'nbd-s3-offload' ), array(), 'warning' );
+            return 0;
         }
 
-        $days      = $settings['abandoned_drafts_days'] ?? 7;
+        if ( empty( $settings['cleanup_abandoned_drafts'] ) ) {
+            return 0;
+        }
+
+        @set_time_limit( 180 );
+
+        $days      = (int) ( $settings['abandoned_drafts_days'] ?? 7 );
         $cutoff_ts = time() - ( $days * DAY_IN_SECONDS );
         $base_dir  = defined( 'NBDESIGNER_CUSTOMER_DIR' ) ? NBDESIGNER_CUSTOMER_DIR : ( WP_CONTENT_DIR . '/uploads/nbdesigner/designs' );
 
         if ( ! is_dir( $base_dir ) ) {
-            return;
+            return 0;
         }
 
-        $dirs = glob( rtrim( $base_dir, '/' ) . '/*', GLOB_ONLYDIR );
-        if ( empty( $dirs ) ) {
-            return;
+        // Set running state indicator
+        set_transient( 'nbd_s3_sync_status', array(
+            'running'    => true,
+            'action'     => 'Draft Cleanup',
+            'started_at' => time(),
+        ), 1800 );
+
+        // 1. Bulk Lookups: Pre-load O(1) hash maps for all protected assets
+        // A. Whitelisted admin templates
+        $template_table  = $wpdb->prefix . 'nbdesigner_templates';
+        $template_lookup = array();
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$template_table}'" ) === $template_table ) {
+            $tpl_col = $wpdb->get_col( "SELECT DISTINCT folder FROM {$template_table} WHERE folder IS NOT NULL AND folder != ''" );
+            if ( ! empty( $tpl_col ) ) {
+                $template_lookup = array_flip( $tpl_col );
+            }
+        }
+
+        // B. Active WooCommerce order item designs
+        $order_meta_table  = $wpdb->prefix . 'woocommerce_order_itemmeta';
+        $all_order_folders = array();
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$order_meta_table}'" ) === $order_meta_table ) {
+            $order_cols = $wpdb->get_col( "SELECT DISTINCT meta_value FROM {$order_meta_table} WHERE meta_key = '_nbd' OR meta_key = '_nbd_item_key'" );
+            if ( ! empty( $order_cols ) ) {
+                $all_order_folders = array_flip( $order_cols );
+            }
+        }
+
+        // C. Customer saved designs
+        $mydesigns_table   = $wpdb->prefix . 'nbdesigner_mydesigns';
+        $all_saved_folders = array();
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$mydesigns_table}'" ) === $mydesigns_table ) {
+            $saved_cols = $wpdb->get_col( "SELECT DISTINCT folder FROM {$mydesigns_table} WHERE folder IS NOT NULL AND folder != ''" );
+            if ( ! empty( $saved_cols ) ) {
+                $all_saved_folders = array_flip( $saved_cols );
+            }
+        }
+
+        // D. Active Cart Protection Shield: Guest sessions & registered persistent carts
+        $all_cart_folders = array();
+        if ( ! empty( $settings['protect_active_carts'] ) ) {
+            $all_cart_folders = self::get_all_active_cart_folders();
+        }
+
+        // E. Failed delete skip list to prevent infinite loop on permission-locked directories
+        $failed_deletes = get_transient( 'nbd_s3_failed_draft_deletes' );
+        if ( ! is_array( $failed_deletes ) ) {
+            $failed_deletes = array();
         }
 
         $deleted_count = 0;
-        foreach ( $dirs as $dir ) {
-            $folder = basename( $dir );
-            $mtime  = filemtime( $dir );
+        $failed_count  = 0;
 
-            if ( $mtime >= $cutoff_ts ) {
-                continue; // Still active / within grace period
-            }
+        try {
+            $iterator = new \DirectoryIterator( $base_dir );
+            foreach ( $iterator as $item ) {
+                if ( $item->isDot() || ! $item->isDir() ) {
+                    continue;
+                }
 
-            // Check if template
-            if ( self::is_admin_template( $folder ) ) {
-                continue;
-            }
+                $folder = $item->getFilename();
 
-            // Check if user saved design
-            $saved = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}nbdesigner_mydesigns WHERE folder = %s LIMIT 1", $folder ) );
-            if ( $saved ) {
-                continue;
-            }
+                // Skip known undeletable directories
+                if ( isset( $failed_deletes[ $folder ] ) ) {
+                    continue;
+                }
 
-            // Check if attached to order item
-            $order_item = $wpdb->get_var( $wpdb->prepare( "SELECT order_item_id FROM {$wpdb->prefix}woocommerce_order_itemmeta WHERE (meta_key = '_nbd' OR meta_key = '_nbd_item_key') AND meta_value = %s LIMIT 1", $folder ) );
-            if ( $order_item ) {
-                continue;
-            }
+                // Check file modification time against grace period
+                $mtime = $item->getMTime();
+                if ( $mtime >= $cutoff_ts ) {
+                    continue; // Still active or created within retention window
+                }
 
-            // Active Cart Protection Shield: Protect if design is inside any live cart
-            if ( ! empty( $settings['protect_active_carts'] ) && self::is_in_active_cart( $folder ) ) {
-                continue;
-            }
+                // Shield 1: Whitelisted admin templates
+                if ( isset( $template_lookup[ $folder ] ) || self::is_admin_template( $folder ) ) {
+                    continue;
+                }
 
-            // Unclaimed orphan draft older than cutoff -> purge
-            if ( self::delete_directory( $dir ) ) {
-                $deleted_count++;
+                // Shield 2: Customer saved designs
+                if ( isset( $all_saved_folders[ $folder ] ) ) {
+                    continue;
+                }
+
+                // Shield 3: Attached to any WooCommerce order item
+                if ( isset( $all_order_folders[ $folder ] ) ) {
+                    continue;
+                }
+
+                // Shield 4: Held in any live guest or customer cart
+                if ( ! empty( $settings['protect_active_carts'] ) && isset( $all_cart_folders[ $folder ] ) ) {
+                    continue;
+                }
+
+                // Unclaimed orphan draft older than cutoff -> purge
+                $dir_path = $item->getPathname();
+                if ( self::delete_directory( $dir_path ) ) {
+                    $deleted_count++;
+                } else {
+                    $failed_count++;
+                    $failed_deletes[ $folder ] = true;
+                }
+
+                if ( $deleted_count >= $batch_size ) {
+                    break;
+                }
             }
+        } catch ( \Throwable $e ) {
+            NBD_S3_Logger::log( 'DRAFT_CLEANUP', sprintf( 'Directory iteration error during draft cleanup: %s', $e->getMessage() ), array( 'exception' => $e->getMessage() ), 'error' );
+        } finally {
+            if ( ! empty( $failed_deletes ) ) {
+                set_transient( 'nbd_s3_failed_draft_deletes', $failed_deletes, 3600 );
+            }
+            delete_transient( 'nbd_s3_sync_status' );
         }
 
-        if ( $deleted_count > 0 ) {
-            NBD_S3_Logger::log( 'DRAFT_CLEANUP', sprintf( 'Cleaned up %d abandoned guest drafts.', $deleted_count ), array( 'deleted' => $deleted_count ), 'info' );
+        // Invalidate directory cache so stats and explorer reflect updated counts
+        delete_transient( 'nbd_s3_explorer_dirs_v2' );
+
+        // AUTO-CHAINING: If we filled a full batch, schedule next chunk in 10 seconds
+        if ( $deleted_count >= $batch_size && function_exists( 'as_schedule_single_action' ) ) {
+            if ( ! as_has_scheduled_action( 'nbd_s3_chain_cleanup_drafts' ) ) {
+                as_schedule_single_action( time() + 10, 'nbd_s3_chain_cleanup_drafts' );
+            }
+            NBD_S3_Logger::log(
+                'DRAFT_CLEANUP',
+                sprintf( __( 'Draft cleanup batch complete: purged %d abandoned guest drafts. Next batch auto-scheduled in 10 seconds...', 'nbd-s3-offload' ), $deleted_count ),
+                array( 'batch_deleted' => $deleted_count ),
+                'info'
+            );
+        } elseif ( $deleted_count > 0 ) {
+            NBD_S3_Logger::log(
+                'DRAFT_CLEANUP',
+                sprintf( __( 'Draft cleanup complete! Purged final %d abandoned guest drafts. All abandoned drafts cleared.', 'nbd-s3-offload' ), $deleted_count ),
+                array( 'total_deleted' => $deleted_count ),
+                'success'
+            );
+        } else {
+            NBD_S3_Logger::log(
+                'DRAFT_CLEANUP',
+                __( 'Draft cleanup check complete. No abandoned guest drafts found exceeding retention threshold.', 'nbd-s3-offload' ),
+                array(),
+                'info'
+            );
         }
+
+        return $deleted_count;
     }
 
     /**
@@ -1460,9 +1617,14 @@ class NBD_S3_Tier_Lifecycle {
         $transient = get_transient( 'nbd_s3_sync_status' );
         $is_running = ! empty( $transient ) && ! empty( $transient['running'] );
 
-        // Also check if Action Scheduler has pending async offload items
-        $has_pending_items = function_exists( 'as_has_scheduled_action' ) && as_has_scheduled_action( 'nbd_s3_async_offload_item' );
-        if ( $has_pending_items && empty( $settings['sync_paused'] ) ) {
+        // Also check if Action Scheduler has pending async offload items or active auto-chaining sweep/cleanup
+        $has_pending_items = function_exists( 'as_has_scheduled_action' ) && (
+            as_has_scheduled_action( 'nbd_s3_async_offload_item' ) ||
+            as_has_scheduled_action( 'nbd_s3_chain_cold_sweep' )
+        );
+        $has_pending_draft_cleanup = function_exists( 'as_has_scheduled_action' ) && as_has_scheduled_action( 'nbd_s3_chain_cleanup_drafts' );
+
+        if ( ( $has_pending_items || $has_pending_draft_cleanup ) && empty( $settings['sync_paused'] ) ) {
             $is_running = true;
         }
 
@@ -1475,7 +1637,13 @@ class NBD_S3_Tier_Lifecycle {
         if ( ! empty( $settings['sync_paused'] ) ) {
             $action_label = 'Paused (Safe Mode)';
         } elseif ( $is_running ) {
-            $action_label = $has_pending_items ? 'Cold Sweep (Offloading Queued Items)' : ( $transient['action'] ?? 'Running' );
+            if ( $has_pending_draft_cleanup ) {
+                $action_label = 'Draft Cleanup (Auto-Chaining Active)';
+            } elseif ( $has_pending_items ) {
+                $action_label = 'Cold Sweep (Auto-Chaining Active)';
+            } else {
+                $action_label = $transient['action'] ?? 'Running';
+            }
         }
 
         return array(
