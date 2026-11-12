@@ -552,6 +552,32 @@ class NBD_S3_Tier_Lifecycle {
     }
 
     /**
+     * Safely flip a flat array of values into keys for O(1) hash lookups.
+     * Sanitizes inputs to ensure only valid non-empty scalar strings/integers are indexed,
+     * completely eliminating PHP Warnings: "array_flip(): Can only flip string and integer values".
+     *
+     * @param array|null $items Array of raw values from database column.
+     * @return array<string, true>
+     */
+    private static function safe_array_flip( ?array $items ): array {
+        if ( empty( $items ) ) {
+            return array();
+        }
+
+        $clean = array();
+        foreach ( $items as $item ) {
+            if ( is_scalar( $item ) ) {
+                $str = trim( (string) $item );
+                if ( '' !== $str ) {
+                    $clean[ $str ] = true;
+                }
+            }
+        }
+
+        return $clean;
+    }
+
+    /**
      * Get count of Tier 2 active local design orders (< retention threshold).
      */
     public static function get_tier2_active_count( bool $force_refresh = false ): int {
@@ -625,7 +651,7 @@ class NBD_S3_Tier_Lifecycle {
         if ( $wpdb->get_var( "SHOW TABLES LIKE '{$template_table}'" ) === $template_table ) {
             $tpl_col = $wpdb->get_col( "SELECT DISTINCT folder FROM {$template_table} WHERE folder IS NOT NULL AND folder != ''" );
             if ( ! empty( $tpl_col ) ) {
-                $template_lookup = array_flip( $tpl_col );
+                $template_lookup = self::safe_array_flip( $tpl_col );
             }
         }
 
@@ -638,11 +664,12 @@ class NBD_S3_Tier_Lifecycle {
                  FROM {$order_meta_table} m1 
                  INNER JOIN {$order_meta_table} m2 ON m1.order_item_id = m2.order_item_id 
                  WHERE (m1.meta_key = '_nbd' OR m1.meta_key = '_nbd_item_key') 
+                   AND m1.meta_value IS NOT NULL AND m1.meta_value != ''
                    AND m2.meta_key = '_nbd_s3_offloaded' 
                    AND m2.meta_value = '1'"
             );
             if ( ! empty( $off_col ) ) {
-                $offloaded_lookup = array_flip( $off_col );
+                $offloaded_lookup = self::safe_array_flip( $off_col );
             }
         }
 
@@ -664,9 +691,9 @@ class NBD_S3_Tier_Lifecycle {
 
         if ( $needs_order_lookup ) {
             if ( $wpdb->get_var( "SHOW TABLES LIKE '{$order_meta_table}'" ) === $order_meta_table ) {
-                $order_cols = $wpdb->get_col( "SELECT DISTINCT meta_value FROM {$order_meta_table} WHERE meta_key = '_nbd' OR meta_key = '_nbd_item_key'" );
+                $order_cols = $wpdb->get_col( "SELECT DISTINCT meta_value FROM {$order_meta_table} WHERE (meta_key = '_nbd' OR meta_key = '_nbd_item_key') AND meta_value IS NOT NULL AND meta_value != ''" );
                 if ( ! empty( $order_cols ) ) {
-                    $all_order_folders = array_flip( $order_cols );
+                    $all_order_folders = self::safe_array_flip( $order_cols );
                 }
             }
         }
@@ -676,7 +703,7 @@ class NBD_S3_Tier_Lifecycle {
             if ( $wpdb->get_var( "SHOW TABLES LIKE '{$mydesigns_table}'" ) === $mydesigns_table ) {
                 $saved_cols = $wpdb->get_col( "SELECT DISTINCT folder FROM {$mydesigns_table} WHERE folder IS NOT NULL AND folder != ''" );
                 if ( ! empty( $saved_cols ) ) {
-                    $all_saved_folders = array_flip( $saved_cols );
+                    $all_saved_folders = self::safe_array_flip( $saved_cols );
                 }
             }
         }
@@ -886,7 +913,7 @@ class NBD_S3_Tier_Lifecycle {
         if ( $wpdb->get_var( "SHOW TABLES LIKE '{$template_table}'" ) === $template_table ) {
             $tpl_col = $wpdb->get_col( "SELECT DISTINCT folder FROM {$template_table} WHERE folder IS NOT NULL AND folder != ''" );
             if ( ! empty( $tpl_col ) ) {
-                $template_lookup = array_flip( $tpl_col );
+                $template_lookup = self::safe_array_flip( $tpl_col );
             }
         }
 
@@ -899,11 +926,12 @@ class NBD_S3_Tier_Lifecycle {
                  FROM {$order_meta_table} m1 
                  INNER JOIN {$order_meta_table} m2 ON m1.order_item_id = m2.order_item_id 
                  WHERE (m1.meta_key = '_nbd' OR m1.meta_key = '_nbd_item_key') 
+                   AND m1.meta_value IS NOT NULL AND m1.meta_value != ''
                    AND m2.meta_key = '_nbd_s3_offloaded' 
                    AND m2.meta_value = '1'"
             );
             if ( ! empty( $off_col ) ) {
-                $offloaded_lookup = array_flip( $off_col );
+                $offloaded_lookup = self::safe_array_flip( $off_col );
             }
         }
 
@@ -913,9 +941,9 @@ class NBD_S3_Tier_Lifecycle {
         // Active orders lookup
         $all_order_folders = array();
         if ( $wpdb->get_var( "SHOW TABLES LIKE '{$order_meta_table}'" ) === $order_meta_table ) {
-            $order_cols = $wpdb->get_col( "SELECT DISTINCT meta_value FROM {$order_meta_table} WHERE meta_key = '_nbd' OR meta_key = '_nbd_item_key'" );
+            $order_cols = $wpdb->get_col( "SELECT DISTINCT meta_value FROM {$order_meta_table} WHERE (meta_key = '_nbd' OR meta_key = '_nbd_item_key') AND meta_value IS NOT NULL AND meta_value != ''" );
             if ( ! empty( $order_cols ) ) {
-                $all_order_folders = array_flip( $order_cols );
+                $all_order_folders = self::safe_array_flip( $order_cols );
             }
         }
 
@@ -1470,7 +1498,7 @@ class NBD_S3_Tier_Lifecycle {
         if ( $wpdb->get_var( "SHOW TABLES LIKE '{$template_table}'" ) === $template_table ) {
             $tpl_col = $wpdb->get_col( "SELECT DISTINCT folder FROM {$template_table} WHERE folder IS NOT NULL AND folder != ''" );
             if ( ! empty( $tpl_col ) ) {
-                $template_lookup = array_flip( $tpl_col );
+                $template_lookup = self::safe_array_flip( $tpl_col );
             }
         }
 
@@ -1478,9 +1506,9 @@ class NBD_S3_Tier_Lifecycle {
         $order_meta_table  = $wpdb->prefix . 'woocommerce_order_itemmeta';
         $all_order_folders = array();
         if ( $wpdb->get_var( "SHOW TABLES LIKE '{$order_meta_table}'" ) === $order_meta_table ) {
-            $order_cols = $wpdb->get_col( "SELECT DISTINCT meta_value FROM {$order_meta_table} WHERE meta_key = '_nbd' OR meta_key = '_nbd_item_key'" );
+            $order_cols = $wpdb->get_col( "SELECT DISTINCT meta_value FROM {$order_meta_table} WHERE (meta_key = '_nbd' OR meta_key = '_nbd_item_key') AND meta_value IS NOT NULL AND meta_value != ''" );
             if ( ! empty( $order_cols ) ) {
-                $all_order_folders = array_flip( $order_cols );
+                $all_order_folders = self::safe_array_flip( $order_cols );
             }
         }
 
@@ -1490,7 +1518,7 @@ class NBD_S3_Tier_Lifecycle {
         if ( $wpdb->get_var( "SHOW TABLES LIKE '{$mydesigns_table}'" ) === $mydesigns_table ) {
             $saved_cols = $wpdb->get_col( "SELECT DISTINCT folder FROM {$mydesigns_table} WHERE folder IS NOT NULL AND folder != ''" );
             if ( ! empty( $saved_cols ) ) {
-                $all_saved_folders = array_flip( $saved_cols );
+                $all_saved_folders = self::safe_array_flip( $saved_cols );
             }
         }
 
