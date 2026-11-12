@@ -227,10 +227,8 @@ class NBD_S3_REST_API {
             ), 400 );
         }
 
-        $is_already_running = function_exists( 'as_has_scheduled_action' ) && (
-            as_has_scheduled_action( 'nbd_s3_async_offload_item' ) ||
-            as_has_scheduled_action( 'nbd_s3_chain_cold_sweep' )
-        );
+        $is_already_running = NBD_S3_Tier_Lifecycle::has_action_in_queue( 'nbd_s3_async_offload_item', array( 'pending', 'in-progress' ) )
+            || NBD_S3_Tier_Lifecycle::has_action_in_queue( 'nbd_s3_chain_cold_sweep', array( 'pending', 'in-progress' ) );
 
         if ( $is_already_running ) {
             return new \WP_REST_Response( array(
@@ -269,7 +267,7 @@ class NBD_S3_REST_API {
             ), 400 );
         }
 
-        $is_already_running = function_exists( 'as_has_scheduled_action' ) && as_has_scheduled_action( 'nbd_s3_chain_cleanup_drafts' );
+        $is_already_running = NBD_S3_Tier_Lifecycle::has_action_in_queue( 'nbd_s3_chain_cleanup_drafts', array( 'pending', 'in-progress' ) );
 
         if ( $is_already_running ) {
             return new \WP_REST_Response( array(

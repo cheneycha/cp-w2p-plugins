@@ -851,10 +851,31 @@ class NBD_S3_Tier_Lifecycle {
     }
 
     /**
-     * Get eligible aged non-template folders for batch testing or sweep queuing.
-     * Extracts directly from candidate inventory matching Explorer Tier 3 Candidate filter.
+     * Check if an Action Scheduler action is currently queued or running, regardless of argument payload.
+     *
+     * @param string          $hook     Action hook name.
+     * @param string|string[] $statuses Statuses to match (defaults to pending and in-progress).
      */
-    public static function get_eligible_batch_folders( int $count = 3 ): array {
+    public static function has_action_in_queue( string $hook, $statuses = array( 'pending', 'in-progress' ) ): bool {
+        if ( ! function_exists( 'as_get_scheduled_actions' ) ) {
+            return false;
+        }
+        $actions = as_get_scheduled_actions(
+            array(
+                'hook'     => $hook,
+                'status'   => (array) $statuses,
+                'per_page' => 1,
+            ),
+            'ids'
+        );
+        return ! empty( $actions );
+    }
+
+    /**
+     * Get eligible aged non-template folders for batch testing or sweep queuing.
+     * Queries un-offloaded order items directly from database with disk age verification.
+     */
+    public static function get_eligible_batch_folders( int $count = 50 ): array {
         @set_time_limit( 300 );
         @ini_set( 'max_execution_time', '300' );
 
@@ -869,45 +890,6 @@ class NBD_S3_Tier_Lifecycle {
             return array();
         }
 
-        $cache_key   = 'nbd_s3_explorer_dirs_v2';
-        $cached_dirs = get_transient( $cache_key );
-
-        if ( false === $cached_dirs || ! is_array( $cached_dirs ) ) {
-            $cached_dirs = array();
-            try {
-                $iterator = new \DirectoryIterator( $base_dir );
-                foreach ( $iterator as $item ) {
-                    if ( $item->isDot() || ! $item->isDir() ) {
-                        continue;
-                    }
-                    $cached_dirs[] = array(
-                        'folder' => $item->getFilename(),
-                        'mtime'  => $item->getMTime(),
-                    );
-                }
-            } catch ( \Throwable $e ) {
-                $dirs = glob( rtrim( $base_dir, '/' ) . '/*', GLOB_ONLYDIR );
-                if ( ! empty( $dirs ) ) {
-                    foreach ( $dirs as $d ) {
-                        $cached_dirs[] = array(
-                            'folder' => basename( $d ),
-                            'mtime'  => (int) @filemtime( $d ),
-                        );
-                    }
-                }
-            }
-
-            usort( $cached_dirs, function( $a, $b ) {
-                return $b['mtime'] <=> $a['mtime'];
-            } );
-
-            set_transient( $cache_key, $cached_dirs, 300 );
-        }
-
-        if ( empty( $cached_dirs ) ) {
-            return array();
-        }
-
         // Whitelisted admin templates
         $template_table  = $wpdb->prefix . 'nbdesigner_templates';
         $template_lookup = array();
@@ -918,69 +900,94 @@ class NBD_S3_Tier_Lifecycle {
             }
         }
 
-        // Offloaded order items from order itemmeta
-        $order_meta_table = $wpdb->prefix . 'woocommerce_order_itemmeta';
-        $offloaded_lookup = array();
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$order_meta_table}'" ) === $order_meta_table ) {
-            $off_col = $wpdb->get_col(
-                "SELECT DISTINCT m1.meta_value 
-                 FROM {$order_meta_table} m1 
-                 INNER JOIN {$order_meta_table} m2 ON m1.order_item_id = m2.order_item_id 
-                 WHERE (m1.meta_key = '_nbd' OR m1.meta_key = '_nbd_item_key') 
-                   AND m1.meta_value IS NOT NULL AND m1.meta_value != ''
-                   AND m2.meta_key = '_nbd_s3_offloaded' 
-                   AND m2.meta_value = '1'"
-            );
-            if ( ! empty( $off_col ) ) {
-                $offloaded_lookup = self::safe_array_flip( $off_col );
-            }
-        }
-
         $registry_lookup = self::get_offloaded_registry();
         $failed_map      = get_transient( 'nbd_s3_failed_folders' ) ?: array();
 
-        // Active orders lookup
-        $all_order_folders = array();
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$order_meta_table}'" ) === $order_meta_table ) {
-            $order_cols = $wpdb->get_col( "SELECT DISTINCT meta_value FROM {$order_meta_table} WHERE (meta_key = '_nbd' OR meta_key = '_nbd_item_key') AND meta_value IS NOT NULL AND meta_value != ''" );
-            if ( ! empty( $order_cols ) ) {
-                $all_order_folders = self::safe_array_flip( $order_cols );
-            }
+        $order_meta_table = $wpdb->prefix . 'woocommerce_order_itemmeta';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$order_meta_table}'" ) !== $order_meta_table ) {
+            return array();
+        }
+
+        // Direct database candidate discovery:
+        // Query distinct order folders that are not yet marked as offloaded in WooCommerce order itemmeta.
+        // Group by folder and order by oldest order item first to process chronologically.
+        $candidates = $wpdb->get_col(
+            "SELECT m1.meta_value 
+             FROM {$order_meta_table} m1 
+             WHERE (m1.meta_key = '_nbd' OR m1.meta_key = '_nbd_item_key') 
+               AND m1.meta_value IS NOT NULL AND m1.meta_value != ''
+               AND NOT EXISTS (
+                   SELECT 1 FROM {$order_meta_table} m2 
+                   WHERE m2.order_item_id = m1.order_item_id 
+                     AND m2.meta_key = '_nbd_s3_offloaded' 
+                     AND m2.meta_value = '1'
+               )
+             GROUP BY m1.meta_value
+             ORDER BY MIN(m1.order_item_id) ASC
+             LIMIT 1000"
+        );
+
+        if ( empty( $candidates ) ) {
+            return array();
         }
 
         $eligible = array();
-        foreach ( $cached_dirs as $d ) {
-            $folder = $d['folder'];
-            $mtime  = $d['mtime'];
-
-            // Must be attached to order
-            if ( ! isset( $all_order_folders[ $folder ] ) ) {
+        foreach ( $candidates as $folder ) {
+            $folder = sanitize_file_name( $folder );
+            if ( empty( $folder ) ) {
                 continue;
             }
 
-            // Must be older than retention cutoff
-            if ( $mtime >= $cutoff ) {
+            // Shield 1: Skip whitelisted admin templates
+            if ( isset( $template_lookup[ $folder ] ) || self::is_admin_template( $folder ) ) {
                 continue;
             }
 
-            // Skip templates
-            if ( isset( $template_lookup[ $folder ] ) ) {
-                continue;
-            }
-
-            // Skip if already offloaded
-            if ( isset( $offloaded_lookup[ $folder ] ) || isset( $registry_lookup[ $folder ] ) ) {
-                continue;
-            }
-
-            // Skip if locally marked as .s3_offloaded
-            $local_dir = rtrim( $base_dir, '/' ) . '/' . $folder;
-            if ( file_exists( $local_dir . '/.s3_offloaded' ) ) {
+            // Skip if already in persistent S3 offload registry
+            if ( isset( $registry_lookup[ $folder ] ) ) {
                 continue;
             }
 
             // Skip if failed 3+ times
             if ( ! empty( $failed_map[ $folder ] ) && $failed_map[ $folder ] >= 3 ) {
+                continue;
+            }
+
+            $local_dir = rtrim( $base_dir, '/' ) . '/' . $folder;
+
+            // If folder doesn't exist locally, record offloaded to avoid re-querying dead items
+            if ( ! is_dir( $local_dir ) ) {
+                self::record_folder_offloaded( $folder );
+                $item_ids = $wpdb->get_col( $wpdb->prepare(
+                    "SELECT DISTINCT order_item_id FROM {$order_meta_table} WHERE (meta_key = '_nbd' OR meta_key = '_nbd_item_key') AND meta_value = %s",
+                    $folder
+                ) );
+                if ( ! empty( $item_ids ) ) {
+                    foreach ( $item_ids as $id ) {
+                        wc_update_order_item_meta( $id, '_nbd_s3_offloaded', 1 );
+                    }
+                }
+                continue;
+            }
+
+            // If already marked as offloaded locally via marker file
+            if ( file_exists( $local_dir . '/.s3_offloaded' ) ) {
+                self::record_folder_offloaded( $folder );
+                $item_ids = $wpdb->get_col( $wpdb->prepare(
+                    "SELECT DISTINCT order_item_id FROM {$order_meta_table} WHERE (meta_key = '_nbd' OR meta_key = '_nbd_item_key') AND meta_value = %s",
+                    $folder
+                ) );
+                if ( ! empty( $item_ids ) ) {
+                    foreach ( $item_ids as $id ) {
+                        wc_update_order_item_meta( $id, '_nbd_s3_offloaded', 1 );
+                    }
+                }
+                continue;
+            }
+
+            // Shield 2: Enforce age cutoff (> 14 days old). Recent active orders (< 14d) are protected.
+            $mtime = (int) @filemtime( $local_dir );
+            if ( $mtime >= $cutoff ) {
                 continue;
             }
 
@@ -1061,9 +1068,9 @@ class NBD_S3_Tier_Lifecycle {
         $use_async = function_exists( 'as_enqueue_async_action' );
 
         // If using Action Scheduler, check if previous batch of offload items is still processing
-        if ( $use_async && function_exists( 'as_has_scheduled_action' ) && as_has_scheduled_action( 'nbd_s3_async_offload_item' ) ) {
+        if ( $use_async && self::has_action_in_queue( 'nbd_s3_async_offload_item', array( 'pending', 'in-progress' ) ) ) {
             // Queue still has pending items. Re-check in 15 seconds to continue auto-chaining.
-            if ( ! as_has_scheduled_action( 'nbd_s3_chain_cold_sweep' ) ) {
+            if ( ! self::has_action_in_queue( 'nbd_s3_chain_cold_sweep', array( 'pending' ) ) ) {
                 as_schedule_single_action( time() + 15, 'nbd_s3_chain_cold_sweep', array( $force ) );
                 if ( function_exists( 'spawn_cron' ) ) {
                     spawn_cron();
@@ -1101,7 +1108,7 @@ class NBD_S3_Tier_Lifecycle {
 
                 // AUTO-CHAINING: Enqueue follow-up action to automatically process the next batch
                 if ( $use_async && function_exists( 'as_schedule_single_action' ) ) {
-                    if ( ! as_has_scheduled_action( 'nbd_s3_chain_cold_sweep' ) ) {
+                    if ( ! self::has_action_in_queue( 'nbd_s3_chain_cold_sweep', array( 'pending' ) ) ) {
                         as_schedule_single_action( time() + 15, 'nbd_s3_chain_cold_sweep', array( $force ) );
                         if ( function_exists( 'spawn_cron' ) ) {
                             spawn_cron();
@@ -1109,53 +1116,8 @@ class NBD_S3_Tier_Lifecycle {
                     }
                 }
             } else {
-                // 2. Fallback check for WooCommerce orders older than retention threshold
-                $days       = (int) ( $settings['cold_retention_days'] ?? 14 );
-                $cutoff_ts  = time() - ( $days * DAY_IN_SECONDS );
-                $orders     = wc_get_orders( array(
-                    'status'        => array( 'wc-completed', 'completed' ),
-                    'date_created'  => '<' . $cutoff_ts,
-                    'limit'         => 30,
-                    'return'        => 'ids',
-                ) );
-
-                if ( ! empty( $orders ) ) {
-                    foreach ( $orders as $order_id ) {
-                        $order = wc_get_order( $order_id );
-                        if ( ! $order ) {
-                            continue;
-                        }
-
-                        foreach ( $order->get_items() as $item_id => $item ) {
-                            $item_key = $item->get_meta( '_nbd' ) ?: $item->get_meta( '_nbd_item_key' );
-
-                            if ( ! empty( $item_key ) ) {
-                                $already_offloaded = $item->get_meta( '_nbd_s3_offloaded' );
-                                if ( empty( $already_offloaded ) ) {
-                                    if ( $use_async ) {
-                                        as_enqueue_async_action( 'nbd_s3_async_offload_item', array( $item_key, $order_id ) );
-                                        $processed++;
-                                    } else {
-                                        @set_time_limit( 120 );
-                                        $res = self::process_single_offload( $item_key, $order_id, false );
-                                        if ( ! empty( $res['success'] ) ) {
-                                            $processed++;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if ( $use_async && $processed > 0 && function_exists( 'as_schedule_single_action' ) ) {
-                        if ( ! as_has_scheduled_action( 'nbd_s3_chain_cold_sweep' ) ) {
-                            as_schedule_single_action( time() + 15, 'nbd_s3_chain_cold_sweep', array( $force ) );
-                        }
-                    }
-                } else {
-                    // No candidate folders or orders remaining: sweep is 100% complete!
-                    NBD_S3_Logger::log( 'SWEEP', __( 'Cold storage sweep complete! All aged design folders have been successfully offloaded to S3.', 'nbd-s3-offload' ), array(), 'success' );
-                }
+                // No candidate folders remaining: sweep is 100% complete!
+                NBD_S3_Logger::log( 'SWEEP', __( 'Cold storage sweep complete! All aged design folders have been successfully offloaded to S3.', 'nbd-s3-offload' ), array(), 'success' );
             }
 
             if ( ! empty( $use_async ) && $processed > 0 ) {
@@ -1202,6 +1164,22 @@ class NBD_S3_Tier_Lifecycle {
         $local_dir = rtrim( $base_dir, '/' ) . '/' . $item_key;
 
         if ( ! is_dir( $local_dir ) ) {
+            // Self-heal: If folder does not exist locally, mark offloaded in registry and order meta
+            self::record_folder_offloaded( $item_key );
+            global $wpdb;
+            $order_meta_table = $wpdb->prefix . 'woocommerce_order_itemmeta';
+            if ( $wpdb->get_var( "SHOW TABLES LIKE '{$order_meta_table}'" ) === $order_meta_table ) {
+                $order_item_ids = $wpdb->get_col( $wpdb->prepare(
+                    "SELECT DISTINCT order_item_id FROM {$order_meta_table} 
+                     WHERE (meta_key = '_nbd' OR meta_key = '_nbd_item_key') AND meta_value = %s",
+                    $item_key
+                ) );
+                if ( ! empty( $order_item_ids ) ) {
+                    foreach ( $order_item_ids as $oi_id ) {
+                        wc_update_order_item_meta( $oi_id, '_nbd_s3_offloaded', 1 );
+                    }
+                }
+            }
             return array( 'success' => false, 'message' => 'Local directory not found' );
         }
 
@@ -1651,7 +1629,7 @@ class NBD_S3_Tier_Lifecycle {
 
         // AUTO-CHAINING: If we filled a full batch, schedule next chunk in 10 seconds
         if ( $deleted_count >= $batch_size && function_exists( 'as_schedule_single_action' ) ) {
-            if ( ! as_has_scheduled_action( 'nbd_s3_chain_cleanup_drafts' ) ) {
+            if ( ! self::has_action_in_queue( 'nbd_s3_chain_cleanup_drafts', array( 'pending' ) ) ) {
                 as_schedule_single_action( time() + 10, 'nbd_s3_chain_cleanup_drafts', array( $batch_size, $force ) );
                 if ( function_exists( 'spawn_cron' ) ) {
                     spawn_cron();
@@ -1818,11 +1796,9 @@ class NBD_S3_Tier_Lifecycle {
         $is_running = ! empty( $transient ) && ! empty( $transient['running'] );
 
         // Also check if Action Scheduler has pending async offload items or active auto-chaining sweep/cleanup
-        $has_pending_items = function_exists( 'as_has_scheduled_action' ) && (
-            as_has_scheduled_action( 'nbd_s3_async_offload_item' ) ||
-            as_has_scheduled_action( 'nbd_s3_chain_cold_sweep' )
-        );
-        $has_pending_draft_cleanup = function_exists( 'as_has_scheduled_action' ) && as_has_scheduled_action( 'nbd_s3_chain_cleanup_drafts' );
+        $has_pending_items = self::has_action_in_queue( 'nbd_s3_async_offload_item', array( 'pending', 'in-progress' ) )
+            || self::has_action_in_queue( 'nbd_s3_chain_cold_sweep', array( 'pending', 'in-progress' ) );
+        $has_pending_draft_cleanup = self::has_action_in_queue( 'nbd_s3_chain_cleanup_drafts', array( 'pending', 'in-progress' ) );
 
         if ( ( $has_pending_items || $has_pending_draft_cleanup ) && empty( $settings['sync_paused'] ) ) {
             $is_running = true;
