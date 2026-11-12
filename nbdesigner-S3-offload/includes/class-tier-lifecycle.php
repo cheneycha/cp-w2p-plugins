@@ -435,7 +435,6 @@ class NBD_S3_Tier_Lifecycle {
             NBD_S3_Logger::log( 'RESTORE_S3_PURGE', sprintf( 'Cleaned up %d remote S3 files for %s after successful local restoration.', $deleted_s3_count, $item_key ), array( 'folder' => $item_key, 'deleted_s3_files' => $deleted_s3_count ), 'info' );
         }
 
-        delete_transient( 'nbd_s3_explorer_dirs_v2' );
         delete_transient( 'nbd_s3_tier2_active_count' );
         self::record_folder_restored( $item_key );
 
@@ -541,7 +540,6 @@ class NBD_S3_Tier_Lifecycle {
             }
         }
 
-        delete_transient( 'nbd_s3_explorer_dirs_v2' );
         delete_transient( 'nbd_s3_tier2_active_count' );
         NBD_S3_Logger::log( 'WHITELIST_RESTORE', sprintf( 'Restored %d whitelisted admin templates to local SSD (%d already local).', $restored, $already_local ), array( 'restored' => $restored, 'already_local' => $already_local ), 'info' );
         return array(
@@ -857,6 +855,9 @@ class NBD_S3_Tier_Lifecycle {
      * Extracts directly from candidate inventory matching Explorer Tier 3 Candidate filter.
      */
     public static function get_eligible_batch_folders( int $count = 3 ): array {
+        @set_time_limit( 300 );
+        @ini_set( 'max_execution_time', '300' );
+
         global $wpdb;
 
         $settings  = NBD_S3_Settings::get_all();
@@ -963,7 +964,7 @@ class NBD_S3_Tier_Lifecycle {
             }
 
             // Skip templates
-            if ( isset( $template_lookup[ $folder ] ) || self::is_admin_template( $folder ) ) {
+            if ( isset( $template_lookup[ $folder ] ) ) {
                 continue;
             }
 
@@ -975,7 +976,6 @@ class NBD_S3_Tier_Lifecycle {
             // Skip if locally marked as .s3_offloaded
             $local_dir = rtrim( $base_dir, '/' ) . '/' . $folder;
             if ( file_exists( $local_dir . '/.s3_offloaded' ) ) {
-                self::record_folder_offloaded( $folder );
                 continue;
             }
 
@@ -1043,6 +1043,9 @@ class NBD_S3_Tier_Lifecycle {
      * @param bool $force Whether this sweep was manually forced (bypasses cron toggle check).
      */
     public static function run_cold_sweep( bool $force = false ): int {
+        @set_time_limit( 300 );
+        @ini_set( 'max_execution_time', '300' );
+
         $settings = NBD_S3_Settings::get_all();
 
         // Safety Kill-Switch: Skip if syncing is paused by admin
@@ -1062,6 +1065,9 @@ class NBD_S3_Tier_Lifecycle {
             // Queue still has pending items. Re-check in 15 seconds to continue auto-chaining.
             if ( ! as_has_scheduled_action( 'nbd_s3_chain_cold_sweep' ) ) {
                 as_schedule_single_action( time() + 15, 'nbd_s3_chain_cold_sweep', array( $force ) );
+                if ( function_exists( 'spawn_cron' ) ) {
+                    spawn_cron();
+                }
             }
             return 0;
         }
@@ -1097,6 +1103,9 @@ class NBD_S3_Tier_Lifecycle {
                 if ( $use_async && function_exists( 'as_schedule_single_action' ) ) {
                     if ( ! as_has_scheduled_action( 'nbd_s3_chain_cold_sweep' ) ) {
                         as_schedule_single_action( time() + 15, 'nbd_s3_chain_cold_sweep', array( $force ) );
+                        if ( function_exists( 'spawn_cron' ) ) {
+                            spawn_cron();
+                        }
                     }
                 }
             } else {
@@ -1296,7 +1305,6 @@ class NBD_S3_Tier_Lifecycle {
             }
         }
 
-        delete_transient( 'nbd_s3_explorer_dirs_v2' );
         delete_transient( 'nbd_s3_tier2_active_count' );
 
         $failed_map = get_transient( 'nbd_s3_failed_folders' );
@@ -1474,7 +1482,8 @@ class NBD_S3_Tier_Lifecycle {
             return 0;
         }
 
-        @set_time_limit( 180 );
+        @set_time_limit( 300 );
+        @ini_set( 'max_execution_time', '300' );
 
         $days      = (int) ( $settings['abandoned_drafts_days'] ?? 7 );
         $cutoff_ts = time() - ( $days * DAY_IN_SECONDS );
@@ -1634,13 +1643,19 @@ class NBD_S3_Tier_Lifecycle {
             delete_transient( 'nbd_s3_sync_status' );
         }
 
-        // Invalidate directory cache so stats and explorer reflect updated counts
-        delete_transient( 'nbd_s3_explorer_dirs_v2' );
+        // Invalidate directory cache only when sweep finishes or when all drafts cleared,
+        // avoiding expensive 75k-item disk rescans between chained batches
+        if ( $deleted_count < $batch_size ) {
+            delete_transient( 'nbd_s3_explorer_dirs_v2' );
+        }
 
         // AUTO-CHAINING: If we filled a full batch, schedule next chunk in 10 seconds
         if ( $deleted_count >= $batch_size && function_exists( 'as_schedule_single_action' ) ) {
             if ( ! as_has_scheduled_action( 'nbd_s3_chain_cleanup_drafts' ) ) {
                 as_schedule_single_action( time() + 10, 'nbd_s3_chain_cleanup_drafts', array( $batch_size, $force ) );
+                if ( function_exists( 'spawn_cron' ) ) {
+                    spawn_cron();
+                }
             }
             NBD_S3_Logger::log(
                 'DRAFT_CLEANUP',
