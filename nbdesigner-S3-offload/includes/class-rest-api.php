@@ -240,10 +240,14 @@ class NBD_S3_REST_API {
             ), 200 );
         }
 
-        $queued = NBD_S3_Tier_Lifecycle::run_cold_sweep();
-        $msg = function_exists( 'as_enqueue_async_action' )
-            ? sprintf( __( 'Cold storage sweep initiated with auto-chaining. Batch of %d design items queued; background runner will automatically continue until all aged items are offloaded.', 'nbd-s3-offload' ), $queued )
-            : sprintf( __( 'Cold storage sweep executed. %d design items processed.', 'nbd-s3-offload' ), $queued );
+        $queued = NBD_S3_Tier_Lifecycle::run_cold_sweep( true );
+        if ( $queued > 0 ) {
+            $msg = function_exists( 'as_enqueue_async_action' )
+                ? sprintf( __( 'Cold storage sweep initiated with auto-chaining. Batch of %d design items queued; background runner will automatically continue until all aged items are offloaded.', 'nbd-s3-offload' ), $queued )
+                : sprintf( __( 'Cold storage sweep executed. %d design items processed.', 'nbd-s3-offload' ), $queued );
+        } else {
+            $msg = __( 'No aged designs (> 14 days) are currently waiting for offload. All eligible items have already been offloaded to S3.', 'nbd-s3-offload' );
+        }
 
         return new \WP_REST_Response( array(
             'success'         => true,
@@ -275,10 +279,14 @@ class NBD_S3_REST_API {
             ), 200 );
         }
 
-        $deleted = NBD_S3_Tier_Lifecycle::run_draft_cleanup( 500 );
-        $msg = ( $deleted >= 500 && function_exists( 'as_schedule_single_action' ) )
-            ? sprintf( __( 'Abandoned draft cleanup initiated with auto-chaining. First batch of %d folders purged; background runner will continue automatically in 10-second intervals until all abandoned drafts are cleared.', 'nbd-s3-offload' ), $deleted )
-            : sprintf( __( 'Abandoned draft cleanup completed. %d folders purged.', 'nbd-s3-offload' ), $deleted );
+        $deleted = NBD_S3_Tier_Lifecycle::run_draft_cleanup( 500, true );
+        if ( $deleted >= 500 && function_exists( 'as_schedule_single_action' ) ) {
+            $msg = sprintf( __( 'Abandoned draft cleanup initiated with auto-chaining. First batch of %d folders purged; background runner will continue automatically in 10-second intervals until all abandoned drafts are cleared.', 'nbd-s3-offload' ), $deleted );
+        } elseif ( $deleted > 0 ) {
+            $msg = sprintf( __( 'Abandoned draft cleanup completed. %d folders purged.', 'nbd-s3-offload' ), $deleted );
+        } else {
+            $msg = __( 'No abandoned drafts (> 7 days) found to purge. All current folders are protected templates, customer saved designs, active cart items, or completed orders.', 'nbd-s3-offload' );
+        }
 
         return new \WP_REST_Response( array(
             'success'         => true,
