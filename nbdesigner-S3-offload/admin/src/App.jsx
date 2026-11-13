@@ -229,6 +229,7 @@ export default function App() {
   const [sweeping, setSweeping] = useState(false);
   const [cleaningDrafts, setCleaningDrafts] = useState(false);
   const [purgingSavedDesigns, setPurgingSavedDesigns] = useState(false);
+  const [skipSavedDesignEmails, setSkipSavedDesignEmails] = useState(true);
   const [restoringTemplates, setRestoringTemplates] = useState(false);
   const [notice, setNotice] = useState(null);
 
@@ -592,8 +593,13 @@ export default function App() {
 
   const handlePurgeSavedDesignsNow = async () => {
     const expiredCount = stats?.saved_designs?.expired ?? 0;
-    const retentionDays = settings.saved_designs_retention_days || 90;
-    const confirmMsg = `Run manual purge for expired customer saved designs now?\n\nThis will permanently delete local folders, remote S3 files, and database records for all customer saved designs older than ${retentionDays} days (${expiredCount} currently expired).\n\nIf notification emails are enabled, customers will receive a purge notice. Proceed?`;
+    const retentionDays = settings.saved_designs_retention_days || 365;
+    const emailNote = skipSavedDesignEmails
+      ? 'Purge notification emails are SKIPPED for this manual run.'
+      : (settings.saved_designs_send_purge_email
+          ? 'Customers will receive 1 grouped summary email per batch.'
+          : 'Purge notification emails are disabled in settings.');
+    const confirmMsg = `Queue background auto-chaining purge for expired customer saved designs now?\n\nThis will permanently delete local folders, remote S3 files, and database records for all customer saved designs older than ${retentionDays} days (${expiredCount} currently expired) in safe 50-item background batches.\n\n${emailNote}\n\nProceed?`;
     if (!window.confirm(confirmMsg)) {
       return;
     }
@@ -602,10 +608,14 @@ export default function App() {
       const res = await fetch(`${config.restUrl}/saved-designs/purge-now`, {
         method: 'POST',
         headers: getHeaders(),
+        body: JSON.stringify({ skip_emails: skipSavedDesignEmails }),
       });
       const data = await safeJson(res);
       if (res.ok && data.success) {
         showNotice('success', data.message || `Purged ${data.purged_count || 0} expired customer saved designs.`);
+        if (data.sync_status) {
+          setSyncStatus(data.sync_status);
+        }
         fetchStats(true);
         fetchLogs();
         fetchExplorerFolders();
@@ -955,7 +965,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.2.11'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.2.12'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">
@@ -2903,8 +2913,17 @@ export default function App() {
                     <h4 className="text-sm font-bold text-slate-900">Purge Expired Customer Saved Designs</h4>
                   </div>
                   <p className="text-xs text-slate-600 mt-1">
-                    Purges customer saved designs older than {settings.saved_designs_retention_days || 365} days from database and storage, and sends purge notification emails.
+                    Purges customer saved designs older than {settings.saved_designs_retention_days || 365} days from database and storage in safe 50-item background auto-chaining batches.
                   </p>
+                  <label className="inline-flex items-center gap-2 mt-2.5 text-xs text-slate-700 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={skipSavedDesignEmails}
+                      onChange={(e) => setSkipSavedDesignEmails(e.target.checked)}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>Skip purge notification emails for this manual run (recommended for large backlogs)</span>
+                  </label>
                   <div className="flex items-center gap-3 mt-2 flex-wrap text-xs font-medium">
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-slate-700">
                       <Bookmark className="w-3.5 h-3.5 text-indigo-600" /> Total Saved: <strong>{stats?.saved_designs?.total ?? 0}</strong>

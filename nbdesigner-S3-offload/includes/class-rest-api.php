@@ -483,6 +483,7 @@ class NBD_S3_REST_API {
                 as_unschedule_all_actions( 'nbd_s3_async_offload_item' );
                 as_unschedule_all_actions( 'nbd_s3_chain_cold_sweep' );
                 as_unschedule_all_actions( 'nbd_s3_chain_cleanup_drafts' );
+                as_unschedule_all_actions( 'nbd_s3_chain_saved_designs_purge' );
             }
             delete_transient( 'nbd_s3_sync_status' );
         }
@@ -570,14 +571,74 @@ class NBD_S3_REST_API {
     /**
      * POST /saved-designs/purge-now
      * Dedicated manual purge button action for customer saved designs older than X days.
+     * Queues background auto-chaining batches via Action Scheduler to avoid HTTP 504 timeouts.
      */
     public static function purge_saved_designs_now( \WP_REST_Request $request ): \WP_REST_Response {
-        $result = NBD_S3_Tier_Lifecycle::run_saved_designs_purge( true );
+        $params      = $request->get_json_params() ?: array();
+        $skip_emails = ! empty( $params['skip_emails'] );
+
+        $is_already_running = NBD_S3_Tier_Lifecycle::has_action_in_queue( 'nbd_s3_chain_saved_designs_purge', array( 'pending', 'in-progress' ) );
+        if ( $is_already_running ) {
+            return new \WP_REST_Response( array(
+                'success'      => true,
+                'message'      => __( 'Expired saved designs purge is already running in the background with auto-chaining.', 'nbd-s3-offload' ),
+                'purged_count' => 0,
+                'stats'        => NBD_S3_Tier_Lifecycle::get_saved_designs_stats(),
+                'sync_status'  => NBD_S3_Tier_Lifecycle::get_sync_status(),
+            ), 200 );
+        }
+
+        $stats         = NBD_S3_Tier_Lifecycle::get_saved_designs_stats();
+        $expired_count = (int) ( $stats['expired'] ?? 0 );
+
+        if ( $expired_count <= 0 ) {
+            return new \WP_REST_Response( array(
+                'success'      => true,
+                'message'      => __( 'No expired customer saved designs found to purge.', 'nbd-s3-offload' ),
+                'purged_count' => 0,
+                'stats'        => $stats,
+                'sync_status'  => NBD_S3_Tier_Lifecycle::get_sync_status(),
+            ), 200 );
+        }
+
+        if ( function_exists( 'as_schedule_single_action' ) ) {
+            as_schedule_single_action( time() + 1, 'nbd_s3_chain_saved_designs_purge', array( true, $skip_emails ) );
+            if ( function_exists( 'spawn_cron' ) ) {
+                spawn_cron();
+            }
+
+            $msg = sprintf(
+                /* translators: 1: total expired count, 2: optional email-skip note */
+                __( 'Saved designs purge queued in the background with auto-chaining for %1$d expired designs (50 per batch, 10s intervals)%2$s.', 'nbd-s3-offload' ),
+                $expired_count,
+                $skip_emails ? __( ' with notification emails skipped', 'nbd-s3-offload' ) : ''
+            );
+
+            NBD_S3_Logger::log(
+                'SAVED_DESIGN_PURGE',
+                $msg,
+                array( 'expired_count' => $expired_count, 'skip_emails' => $skip_emails ),
+                'info'
+            );
+
+            return new \WP_REST_Response( array(
+                'success'      => true,
+                'queued'       => true,
+                'message'      => $msg,
+                'purged_count' => 0,
+                'stats'        => $stats,
+                'sync_status'  => NBD_S3_Tier_Lifecycle::get_sync_status(),
+            ), 200 );
+        }
+
+        // Fallback when Action Scheduler is unavailable
+        $result = NBD_S3_Tier_Lifecycle::run_saved_designs_purge( true, $skip_emails );
         return new \WP_REST_Response( array(
             'success'      => $result['success'] ?? true,
             'message'      => $result['message'] ?? '',
             'purged_count' => $result['purged_count'] ?? 0,
             'stats'        => NBD_S3_Tier_Lifecycle::get_saved_designs_stats(),
+            'sync_status'  => NBD_S3_Tier_Lifecycle::get_sync_status(),
         ), 200 );
     }
 }

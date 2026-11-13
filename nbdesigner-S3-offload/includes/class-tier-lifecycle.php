@@ -42,6 +42,7 @@ class NBD_S3_Tier_Lifecycle {
         add_action( 'nbd_s3_cron_cleanup_drafts', array( __CLASS__, 'run_draft_cleanup' ) );
         add_action( 'nbd_s3_chain_cleanup_drafts', array( __CLASS__, 'run_draft_cleanup' ), 10, 2 );
         add_action( 'nbd_s3_cron_saved_designs_lifecycle', array( __CLASS__, 'run_saved_designs_lifecycle' ) );
+        add_action( 'nbd_s3_chain_saved_designs_purge', array( __CLASS__, 'run_saved_designs_purge' ), 10, 2 );
 
         // Customer Saved Designs Frontend UI hook (Loco Translate compatible)
         add_action( 'nb_before_show_design', array( __CLASS__, 'render_saved_designs_frontend_notices' ) );
@@ -1799,8 +1800,12 @@ class NBD_S3_Tier_Lifecycle {
         $has_pending_items = self::has_action_in_queue( 'nbd_s3_async_offload_item', array( 'pending', 'in-progress' ) )
             || self::has_action_in_queue( 'nbd_s3_chain_cold_sweep', array( 'pending', 'in-progress' ) );
         $has_pending_draft_cleanup = self::has_action_in_queue( 'nbd_s3_chain_cleanup_drafts', array( 'pending', 'in-progress' ) );
+        $has_pending_saved_purge   = self::has_action_in_queue( 'nbd_s3_chain_saved_designs_purge', array( 'pending', 'in-progress' ) );
 
-        if ( ( $has_pending_items || $has_pending_draft_cleanup ) && empty( $settings['sync_paused'] ) ) {
+        if ( ( $has_pending_items || $has_pending_draft_cleanup || $has_pending_saved_purge ) && empty( $settings['sync_paused'] ) ) {
+            $is_running = true;
+        }
+        if ( $has_pending_saved_purge ) {
             $is_running = true;
         }
 
@@ -1810,7 +1815,9 @@ class NBD_S3_Tier_Lifecycle {
         $tz_string = function_exists( 'wp_timezone_string' ) ? wp_timezone_string() : 'UTC';
 
         $action_label = 'Idle';
-        if ( ! empty( $settings['sync_paused'] ) ) {
+        if ( $has_pending_saved_purge ) {
+            $action_label = 'Saved Designs Purge (Auto-Chaining Active)';
+        } elseif ( ! empty( $settings['sync_paused'] ) ) {
             $action_label = 'Paused (Safe Mode)';
         } elseif ( $is_running ) {
             if ( $has_pending_draft_cleanup ) {
@@ -2163,14 +2170,15 @@ class NBD_S3_Tier_Lifecycle {
                         $sent_any = true;
                         NBD_S3_Logger::log(
                             'SAVED_DESIGN_WARN',
-                            'INFO',
                             sprintf(
                                 /* translators: 1: design ID, 2: days left, 3: user ID */
                                 __( 'Sent %2$d-day expiration warning email to User #%3$d for saved design #%1$s.', 'nbd-s3-offload' ),
                                 (string) $row->id,
                                 $days_left,
                                 (int) $row->user_id
-                            )
+                            ),
+                            array( 'design_id' => (int) $row->id, 'user_id' => (int) $row->user_id, 'days_left' => $days_left ),
+                            'info'
                         );
                     }
                 }
@@ -2183,14 +2191,18 @@ class NBD_S3_Tier_Lifecycle {
     }
 
     /**
-     * Purge expired customer saved designs.
-     * Can be invoked manually from admin dashboard or automatically by lifecycle scheduler.
+     * Purge expired customer saved designs in safe background-capable batches with auto-chaining.
+     * Can be invoked manually (via Action Scheduler queue) or automatically by daily lifecycle scheduler.
      *
-     * @param bool $is_manual Whether triggered manually by admin click.
+     * @param bool $is_manual   Whether triggered manually by admin click.
+     * @param bool $skip_emails Whether to suppress customer purge notification emails for this run.
      * @return array
      */
-    public static function run_saved_designs_purge( bool $is_manual = false ): array {
+    public static function run_saved_designs_purge( bool $is_manual = false, bool $skip_emails = false ): array {
         global $wpdb;
+        @set_time_limit( 300 );
+        @ini_set( 'max_execution_time', '300' );
+
         $settings = NBD_S3_Settings::get_all();
 
         if ( ! $is_manual && ! empty( $settings['sync_paused'] ) ) {
@@ -2219,13 +2231,27 @@ class NBD_S3_Tier_Lifecycle {
         }
 
         $retention_days = max( 1, (int) ( $settings['saved_designs_retention_days'] ?? 90 ) );
+        $batch_size     = 50;
+
+        $failed_ids = get_transient( 'nbd_s3_failed_saved_design_purges' );
+        if ( ! is_array( $failed_ids ) ) {
+            $failed_ids = array();
+        }
+        $failed_ids = array_values( array_filter( array_map( 'intval', $failed_ids ) ) );
+
+        $exclude_sql = '';
+        if ( ! empty( $failed_ids ) ) {
+            $exclude_sql = ' AND id NOT IN (' . implode( ',', $failed_ids ) . ')';
+        }
 
         $expired_rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT * FROM {$table} WHERE created_date <= DATE_SUB(NOW(), INTERVAL %d DAY) ORDER BY created_date ASC LIMIT 100",
-            $retention_days
+            "SELECT * FROM {$table} WHERE created_date <= DATE_SUB(NOW(), INTERVAL %d DAY){$exclude_sql} ORDER BY created_date ASC LIMIT %d",
+            $retention_days,
+            $batch_size
         ) );
 
         if ( empty( $expired_rows ) ) {
+            delete_transient( 'nbd_s3_sync_status' );
             return array(
                 'success'      => true,
                 'purged_count' => 0,
@@ -2233,34 +2259,111 @@ class NBD_S3_Tier_Lifecycle {
             );
         }
 
-        $purged_count = 0;
-        foreach ( $expired_rows as $row ) {
-            $ok = self::purge_single_saved_design( (int) $row->id, $row );
-            if ( $ok ) {
-                $purged_count++;
+        set_transient( 'nbd_s3_sync_status', array(
+            'running'    => true,
+            'action'     => 'Saved Designs Purge (Auto-Chaining Active)',
+            'started_at' => time(),
+        ), 300 );
+
+        $purged_count   = 0;
+        $purged_by_user = array();
+        $purged_ids     = array();
+
+        try {
+            foreach ( $expired_rows as $row ) {
+                $did = (int) $row->id;
+                $ok  = self::purge_single_saved_design( $did, $row, false, false );
+                if ( $ok ) {
+                    $purged_count++;
+                    $purged_ids[] = $did;
+                    $uid = (int) ( $row->user_id ?? 0 );
+                    if ( $uid > 0 ) {
+                        if ( ! isset( $purged_by_user[ $uid ] ) ) {
+                            $purged_by_user[ $uid ] = array();
+                        }
+                        $purged_by_user[ $uid ][] = $row;
+                    }
+                } else {
+                    $failed_ids[] = $did;
+                }
             }
+
+            // Bulk-clean warning tracking option once per batch
+            if ( ! empty( $purged_ids ) ) {
+                $warnings_sent_log = get_option( 'nbd_s3_saved_design_warnings_sent', array() );
+                if ( is_array( $warnings_sent_log ) && ! empty( $warnings_sent_log ) ) {
+                    $changed = false;
+                    foreach ( $purged_ids as $pid ) {
+                        if ( isset( $warnings_sent_log[ $pid ] ) ) {
+                            unset( $warnings_sent_log[ $pid ] );
+                            $changed = true;
+                        }
+                    }
+                    if ( $changed ) {
+                        update_option( 'nbd_s3_saved_design_warnings_sent', $warnings_sent_log, false );
+                    }
+                }
+            }
+
+            // Send at most 1 grouped summary email per customer in this batch (unless skipped)
+            if ( ! $skip_emails && ! empty( $settings['saved_designs_send_purge_email'] ) && ! empty( $purged_by_user ) ) {
+                foreach ( $purged_by_user as $uid => $user_designs ) {
+                    self::send_saved_design_purge_summary_email( (int) $uid, $user_designs );
+                }
+            }
+        } finally {
+            if ( ! empty( $failed_ids ) ) {
+                set_transient( 'nbd_s3_failed_saved_design_purges', array_values( array_unique( $failed_ids ) ), 3600 );
+            }
+            delete_transient( 'nbd_s3_sync_status' );
         }
 
-        if ( $purged_count > 0 && $is_manual ) {
+        // Check if additional expired rows remain for auto-chaining
+        $exclude_after_sql = '';
+        if ( ! empty( $failed_ids ) ) {
+            $exclude_after_sql = ' AND id NOT IN (' . implode( ',', array_values( array_unique( $failed_ids ) ) ) . ')';
+        }
+        $has_more = (bool) $wpdb->get_var( $wpdb->prepare(
+            "SELECT 1 FROM {$table} WHERE created_date <= DATE_SUB(NOW(), INTERVAL %d DAY){$exclude_after_sql} LIMIT 1",
+            $retention_days
+        ) );
+
+        if ( $has_more && function_exists( 'as_schedule_single_action' ) ) {
+            if ( ! self::has_action_in_queue( 'nbd_s3_chain_saved_designs_purge', array( 'pending' ) ) ) {
+                as_schedule_single_action( time() + 10, 'nbd_s3_chain_saved_designs_purge', array( $is_manual, $skip_emails ) );
+                if ( function_exists( 'spawn_cron' ) ) {
+                    spawn_cron();
+                }
+            }
             NBD_S3_Logger::log(
                 'SAVED_DESIGN_PURGE',
-                'SUCCESS',
+                sprintf(
+                    /* translators: %d: number of purged designs in this batch */
+                    __( 'Saved designs purge batch complete: deleted %d expired designs%s. Next batch auto-scheduled in 10 seconds...', 'nbd-s3-offload' ),
+                    $purged_count,
+                    $skip_emails ? __( ' (emails skipped)', 'nbd-s3-offload' ) : ''
+                ),
+                array( 'batch_purged' => $purged_count, 'skip_emails' => $skip_emails, 'manual' => $is_manual ),
+                'info'
+            );
+        } elseif ( $purged_count > 0 ) {
+            NBD_S3_Logger::log(
+                'SAVED_DESIGN_PURGE',
                 sprintf(
                     /* translators: %d: number of purged designs */
-                    _n(
-                        'Manual purge completed: Successfully deleted %d expired customer saved design and notified customer.',
-                        'Manual purge completed: Successfully deleted %d expired customer saved designs and notified customers.',
-                        $purged_count,
-                        'nbd-s3-offload'
-                    ),
-                    $purged_count
-                )
+                    __( 'Saved designs purge complete: deleted final %d expired customer saved designs%s.', 'nbd-s3-offload' ),
+                    $purged_count,
+                    $skip_emails ? __( ' (emails skipped)', 'nbd-s3-offload' ) : ''
+                ),
+                array( 'purged_count' => $purged_count, 'skip_emails' => $skip_emails, 'manual' => $is_manual ),
+                'success'
             );
         }
 
         return array(
             'success'      => true,
             'purged_count' => $purged_count,
+            'has_more'     => $has_more,
             'message'      => sprintf(
                 /* translators: %d: count */
                 _n(
@@ -2275,13 +2378,15 @@ class NBD_S3_Tier_Lifecycle {
     }
 
     /**
-     * Permanently purge a single saved design: remove local files, remove remote S3 copy, delete DB row, and email user.
+     * Permanently purge a single saved design: remove local files, remove remote S3 copy, delete DB row, and optionally email user.
      *
-     * @param int          $design_id Primary key in nbdesigner_mydesigns.
-     * @param ?object      $design    Optional pre-fetched row object.
+     * @param int          $design_id        Primary key in nbdesigner_mydesigns.
+     * @param ?object      $design           Optional pre-fetched row object.
+     * @param bool         $send_email       Whether to send individual purge notification email.
+     * @param bool         $write_item_log   Whether to write an individual Activity Log entry.
      * @return bool
      */
-    public static function purge_single_saved_design( int $design_id, ?object $design = null ): bool {
+    public static function purge_single_saved_design( int $design_id, ?object $design = null, bool $send_email = true, bool $write_item_log = true ): bool {
         global $wpdb;
         $table = $wpdb->prefix . 'nbdesigner_mydesigns';
 
@@ -2289,58 +2394,128 @@ class NBD_S3_Tier_Lifecycle {
             $design = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $design_id ) );
         }
 
-        if ( ! $design || empty( $design->folder ) ) {
+        if ( ! $design ) {
             return false;
         }
 
-        $folder = sanitize_file_name( $design->folder );
-        $upload_dir = wp_upload_dir();
-        $base_dir = defined( 'NBDESIGNER_CUSTOMER_DIR' ) ? NBDESIGNER_CUSTOMER_DIR : trailingslashit( $upload_dir['basedir'] ) . 'nbdesigner';
-        $folder_path = trailingslashit( $base_dir ) . $folder;
+        $folder = ! empty( $design->folder ) ? sanitize_file_name( $design->folder ) : '';
+        if ( '' !== $folder ) {
+            $upload_dir  = wp_upload_dir();
+            $base_dir    = defined( 'NBDESIGNER_CUSTOMER_DIR' ) ? NBDESIGNER_CUSTOMER_DIR : trailingslashit( $upload_dir['basedir'] ) . 'nbdesigner';
+            $folder_path = trailingslashit( $base_dir ) . $folder;
 
-        // 1. Delete local files and directory
-        if ( is_dir( $folder_path ) ) {
-            self::delete_directory( $folder_path );
+            // 1. Delete local files and directory
+            if ( is_dir( $folder_path ) ) {
+                self::delete_directory( $folder_path );
+            }
+
+            // 2. Delete remote S3 objects if present
+            try {
+                $client = self::get_client();
+                $client->delete_folder( 'designs/' . $folder );
+            } catch ( \Throwable $e ) {
+                // S3 failure non-fatal to DB deletion
+            }
+
+            // 3. Unregister from offload registry if present
+            self::record_folder_restored( $folder );
         }
-
-        // 2. Delete remote S3 objects if present
-        try {
-            $client = self::get_client();
-            $client->delete_folder( 'designs/' . $folder );
-        } catch ( \Throwable $e ) {
-            // S3 failure non-fatal to DB deletion
-        }
-
-        // 3. Unregister from offload registry
-        self::unregister_offloaded_folder( $folder );
 
         // 4. Delete row from database
-        $wpdb->delete( $table, array( 'id' => $design_id ) );
-
-        // 5. Clean up anti-spam warning tracking
-        $warnings_sent_log = get_option( 'nbd_s3_saved_design_warnings_sent', array() );
-        if ( is_array( $warnings_sent_log ) && isset( $warnings_sent_log[ $design_id ] ) ) {
-            unset( $warnings_sent_log[ $design_id ] );
-            update_option( 'nbd_s3_saved_design_warnings_sent', $warnings_sent_log, false );
+        $deleted = $wpdb->delete( $table, array( 'id' => $design_id ) );
+        if ( false === $deleted ) {
+            return false;
         }
 
-        // 6. Send notification email to customer
-        self::send_saved_design_purge_email( $design );
+        // 5. Clean up anti-spam warning tracking when called individually
+        if ( $write_item_log ) {
+            $warnings_sent_log = get_option( 'nbd_s3_saved_design_warnings_sent', array() );
+            if ( is_array( $warnings_sent_log ) && isset( $warnings_sent_log[ $design_id ] ) ) {
+                unset( $warnings_sent_log[ $design_id ] );
+                update_option( 'nbd_s3_saved_design_warnings_sent', $warnings_sent_log, false );
+            }
+        }
 
-        // 7. Write to Activity Audit Log
-        NBD_S3_Logger::log(
-            'SAVED_DESIGN_PURGE',
-            'SUCCESS',
-            sprintf(
-                /* translators: 1: design ID, 2: folder key, 3: user ID */
-                __( 'Purged expired saved design #%1$s (Folder: %2$s) belonging to User #%3$d. Local files wiped and customer notified.', 'nbd-s3-offload' ),
-                (string) $design_id,
-                $folder,
-                (int) $design->user_id
-            )
-        );
+        // 6. Send notification email to customer if requested
+        if ( $send_email ) {
+            self::send_saved_design_purge_email( $design );
+        }
+
+        // 7. Write to Activity Audit Log if requested
+        if ( $write_item_log ) {
+            NBD_S3_Logger::log(
+                'SAVED_DESIGN_PURGE',
+                sprintf(
+                    /* translators: 1: design ID, 2: folder key, 3: user ID */
+                    __( 'Purged expired saved design #%1$s (Folder: %2$s) belonging to User #%3$d.', 'nbd-s3-offload' ),
+                    (string) $design_id,
+                    $folder ?: 'N/A',
+                    (int) $design->user_id
+                ),
+                array( 'design_id' => $design_id, 'folder' => $folder, 'user_id' => (int) $design->user_id ),
+                'success'
+            );
+        }
 
         return true;
+    }
+
+    /**
+     * Send a single grouped purge summary email to a customer for one or more expired designs.
+     *
+     * @param int   $user_id User ID.
+     * @param array $designs Array of design objects purged for this user in the current batch.
+     * @return bool
+     */
+    public static function send_saved_design_purge_summary_email( int $user_id, array $designs ): bool {
+        if ( empty( $designs ) ) {
+            return false;
+        }
+        if ( 1 === count( $designs ) ) {
+            return self::send_saved_design_purge_email( reset( $designs ) );
+        }
+
+        $settings = NBD_S3_Settings::get_all();
+        if ( empty( $settings['saved_designs_send_purge_email'] ) ) {
+            return false;
+        }
+
+        $user = get_userdata( $user_id );
+        if ( ! $user || empty( $user->user_email ) ) {
+            return false;
+        }
+
+        $customer_email = $user->user_email;
+        $customer_name  = ! empty( $user->display_name ) ? $user->display_name : ( ! empty( $user->first_name ) ? $user->first_name : $user->user_login );
+        $count          = count( $designs );
+        $site_name      = get_bloginfo( 'name' );
+        $retention_days = (int) ( $settings['saved_designs_retention_days'] ?? 365 );
+        $shop_url       = function_exists( 'wc_get_page_permalink' ) ? wc_get_page_permalink( 'shop' ) : home_url( '/' );
+
+        $subject = sprintf(
+            /* translators: 1: site name, 2: count */
+            __( '[%1$s] Notice: %2$d expired saved designs were removed', 'nbd-s3-offload' ),
+            $site_name,
+            $count
+        );
+        $heading = __( 'Saved Designs Expired and Removed', 'nbd-s3-offload' );
+
+        $id_preview = array_slice( array_map( static fn( $d ) => '#' . (string) $d->id, $designs ), 0, 10 );
+        $id_list    = implode( ', ', $id_preview ) . ( $count > 10 ? sprintf( __( ' (and %d more)', 'nbd-s3-offload' ), $count - 10 ) : '' );
+
+        $content  = '<p>' . sprintf( esc_html__( 'Hello %s,', 'nbd-s3-offload' ), esc_html( $customer_name ) ) . '</p>';
+        $content .= '<p>' . sprintf(
+            /* translators: 1: count, 2: retention days, 3: design IDs */
+            esc_html__( '%1$d of your saved designs (%3$s) have reached our %2$d-day storage retention limit and have now been automatically removed from our system.', 'nbd-s3-offload' ),
+            $count,
+            $retention_days,
+            '<strong>' . esc_html( $id_list ) . '</strong>'
+        ) . '</p>';
+        $content .= '<p>' . esc_html__( 'You are always welcome to start a fresh design whenever you are ready to create your next project!', 'nbd-s3-offload' ) . '</p>';
+        $content .= '<p style="margin: 25px 0;"><a href="' . esc_url( $shop_url ) . '" style="background-color: #4f46e5; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">' . esc_html__( 'Start a New Design', 'nbd-s3-offload' ) . '</a></p>';
+        $content .= '<p style="color: #64748b; font-size: 13px;">' . sprintf( esc_html__( 'Thank you for choosing %s.', 'nbd-s3-offload' ), esc_html( $site_name ) ) . '</p>';
+
+        return self::deliver_html_email( $customer_email, $subject, $heading, $content );
     }
 
     /**
