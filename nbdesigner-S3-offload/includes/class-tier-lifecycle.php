@@ -2205,6 +2205,15 @@ class NBD_S3_Tier_Lifecycle {
 
         $settings = NBD_S3_Settings::get_all();
 
+        if ( $is_manual && get_transient( 'nbd_s3_saved_purge_cancelled' ) ) {
+            delete_transient( 'nbd_s3_sync_status' );
+            return array(
+                'success'      => false,
+                'message'      => __( 'Skipped: Saved designs purge was stopped by Pause.', 'nbd-s3-offload' ),
+                'purged_count' => 0,
+            );
+        }
+
         if ( ! $is_manual && ! empty( $settings['sync_paused'] ) ) {
             return array(
                 'success'      => false,
@@ -2271,6 +2280,9 @@ class NBD_S3_Tier_Lifecycle {
 
         try {
             foreach ( $expired_rows as $row ) {
+                if ( get_transient( 'nbd_s3_saved_purge_cancelled' ) ) {
+                    break;
+                }
                 $did = (int) $row->id;
                 $ok  = self::purge_single_saved_design( $did, $row, false, false );
                 if ( $ok ) {
@@ -2328,7 +2340,8 @@ class NBD_S3_Tier_Lifecycle {
             $retention_days
         ) );
 
-        if ( $has_more && function_exists( 'as_schedule_single_action' ) ) {
+        $cancelled = (bool) get_transient( 'nbd_s3_saved_purge_cancelled' );
+        if ( $has_more && ! $cancelled && function_exists( 'as_schedule_single_action' ) ) {
             if ( ! self::has_action_in_queue( 'nbd_s3_chain_saved_designs_purge', array( 'pending' ) ) ) {
                 as_schedule_single_action( time() + 10, 'nbd_s3_chain_saved_designs_purge', array( $is_manual, $skip_emails ) );
                 if ( function_exists( 'spawn_cron' ) ) {

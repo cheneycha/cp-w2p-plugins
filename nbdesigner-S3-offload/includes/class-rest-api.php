@@ -479,6 +479,7 @@ class NBD_S3_REST_API {
 
         // If pausing (Safe Mode active), immediately unschedule any queued offload tasks and clear active indicator
         if ( $new_pause_state ) {
+            set_transient( 'nbd_s3_saved_purge_cancelled', 1, 300 );
             if ( function_exists( 'as_unschedule_all_actions' ) ) {
                 as_unschedule_all_actions( 'nbd_s3_async_offload_item' );
                 as_unschedule_all_actions( 'nbd_s3_chain_cold_sweep' );
@@ -602,6 +603,7 @@ class NBD_S3_REST_API {
         }
 
         if ( function_exists( 'as_schedule_single_action' ) ) {
+            delete_transient( 'nbd_s3_saved_purge_cancelled' );
             as_schedule_single_action( time() + 1, 'nbd_s3_chain_saved_designs_purge', array( true, $skip_emails ) );
             if ( function_exists( 'spawn_cron' ) ) {
                 spawn_cron();
