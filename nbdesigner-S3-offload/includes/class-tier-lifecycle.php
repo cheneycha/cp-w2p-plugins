@@ -1227,6 +1227,11 @@ class NBD_S3_Tier_Lifecycle {
             return array( 'success' => false, 'message' => 'Integrity verification failed on S3' );
         }
 
+        // Index any temp/ references (including part/*.svg and full-purge JSONs) before local files are purged
+        if ( class_exists( 'NBD_S3_Temp_Lifecycle' ) ) {
+            NBD_S3_Temp_Lifecycle::index_single_design_dir( $item_key, $local_dir );
+        }
+
         // Purge local files based on setting
         $settings   = NBD_S3_Settings::get_all();
         $purge_mode = $settings['purge_mode'] ?? 'smart';
