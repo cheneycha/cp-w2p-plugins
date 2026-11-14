@@ -189,6 +189,8 @@ export default function App() {
     saved_designs_warning_days: 7,
     saved_designs_send_warning_email: true,
     saved_designs_send_purge_email: true,
+    enable_temp_cleanup: false,
+    temp_retention_days: 30,
     sync_paused: true,
     sync_schedule_time: '03:00',
     enable_activity_log: true,
@@ -230,6 +232,9 @@ export default function App() {
   const [cleaningDrafts, setCleaningDrafts] = useState(false);
   const [purgingSavedDesigns, setPurgingSavedDesigns] = useState(false);
   const [skipSavedDesignEmails, setSkipSavedDesignEmails] = useState(true);
+  const [tempStats, setTempStats] = useState(null);
+  const [indexingTemp, setIndexingTemp] = useState(false);
+  const [sweepingTemp, setSweepingTemp] = useState(false);
   const [restoringTemplates, setRestoringTemplates] = useState(false);
   const [notice, setNotice] = useState(null);
 
@@ -329,6 +334,18 @@ export default function App() {
     }
   };
 
+  const fetchTempStats = async () => {
+    try {
+      const res = await fetch(`${config.restUrl}/temp/stats`, { headers: getHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setTempStats(data);
+      }
+    } catch (err) {
+      console.error('Failed to load temp stats:', err);
+    }
+  };
+
   const fetchStats = async (force = false) => {
     setLoading(true);
     try {
@@ -343,6 +360,7 @@ export default function App() {
           setBucketConnection(data.bucket_connection);
         }
       }
+      fetchTempStats();
     } catch (err) {
       console.error('Failed to load stats:', err);
     } finally {
@@ -626,6 +644,62 @@ export default function App() {
       showNotice('error', 'Saved designs purge error: ' + err.message);
     } finally {
       setPurgingSavedDesigns(false);
+    }
+  };
+
+  const handleTempIndexNow = async () => {
+    const confirmMsg = 'Rebuild the full temp/ reference index now?\n\nThis scans remaining design.json/config.json/product.json files in wp-content/uploads/nbdesigner/designs/ in safe 500-folder background batches via Action Scheduler and stores referenced temp/ paths in wp_nbd_s3_temp_refs.\n\nProceed?';
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+    setIndexingTemp(true);
+    try {
+      const res = await fetch(`${config.restUrl}/temp/index-now`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ full_rebuild: true }),
+      });
+      const data = await safeJson(res);
+      if (res.ok && data.success) {
+        showNotice('success', data.message || 'Temp reference index rebuild queued.');
+        if (data.temp_stats) setTempStats(data.temp_stats);
+        if (data.sync_status) setSyncStatus(data.sync_status);
+        fetchLogs();
+      } else {
+        showNotice('error', data.message || 'Failed to queue temp reference index.');
+      }
+    } catch (err) {
+      showNotice('error', 'Temp index error: ' + err.message);
+    } finally {
+      setIndexingTemp(false);
+    }
+  };
+
+  const handleTempSweepNow = async () => {
+    const retentionDays = settings.temp_retention_days || 30;
+    const confirmMsg = `Run reference-aware orphaned temp/ purge now?\n\n1. Updates the reference index (incremental if already scanned, or full baseline if first run).\n2. Deletes files in wp-content/uploads/nbdesigner/temp/ older than ${retentionDays} days ONLY if they are NOT referenced by any remaining design.\n3. temp/pdf-templates/ is permanently protected.\n\nProceed?`;
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+    setSweepingTemp(true);
+    try {
+      const res = await fetch(`${config.restUrl}/temp/sweep-now`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+      const data = await safeJson(res);
+      if (res.ok && data.success) {
+        showNotice('success', data.message || 'Temp folder sweep queued in background.');
+        if (data.temp_stats) setTempStats(data.temp_stats);
+        if (data.sync_status) setSyncStatus(data.sync_status);
+        fetchLogs();
+      } else {
+        showNotice('error', data.message || 'Temp folder sweep failed.');
+      }
+    } catch (err) {
+      showNotice('error', 'Temp sweep error: ' + err.message);
+    } finally {
+      setSweepingTemp(false);
     }
   };
 
@@ -965,7 +1039,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '1.0.0'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '1.0.1'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">
@@ -2459,6 +2533,81 @@ export default function App() {
               )}
             </div>
 
+              {/* Temp Folder Lifecycle Policy (Reference-Aware Orphan Sweeper) */}
+              <div className="border border-slate-200 bg-white rounded-2xl p-5 space-y-4 shadow-xs">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3.5">
+                    <div className="p-2.5 bg-teal-50 text-teal-700 rounded-xl border border-teal-200/80 flex-shrink-0">
+                      <FolderOpen className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-teal-100 text-teal-800 border border-teal-200">
+                          TEMP FOLDER
+                        </span>
+                        <h3 className="text-sm font-bold text-slate-900">
+                          Reference-Aware Temp Uploads Lifecycle
+                        </h3>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                        Keeps <code>wp-content/uploads/nbdesigner/temp/</code> lean by deleting old uploaded images that are <strong>not referenced</strong> by any remaining Template, Order, or Saved Design. <code>temp/pdf-templates/</code> is always protected.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex-shrink-0">
+                    <ToggleSwitch
+                      checked={settings.enable_temp_cleanup}
+                      onChange={(val) => setSettings({ ...settings, enable_temp_cleanup: val })}
+                      activeColor="bg-indigo-600"
+                      ariaLabel="Enable Automated Temp Folder Cleanup"
+                    />
+                  </div>
+                </div>
+
+                {settings.enable_temp_cleanup && (
+                  <div className="pt-3 border-t border-slate-100 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="text-xs font-bold text-slate-700">
+                        Unreferenced Temp File Retention Window:
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min="1"
+                          max="3650"
+                          value={settings.temp_retention_days || 30}
+                          onChange={(e) => {
+                            const val = Math.max(1, Math.min(3650, parseInt(e.target.value, 10) || 1));
+                            setSettings({ ...settings, temp_retention_days: val });
+                          }}
+                          className="w-20 px-2 py-0.5 text-xs font-bold text-center rounded-lg border border-slate-300 bg-white text-slate-800 shadow-2xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                        />
+                        <span className="text-xs font-bold text-slate-600">Days</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {[7, 30, 90, 180, 365].map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => setSettings({ ...settings, temp_retention_days: d })}
+                          className={`px-3 py-1 rounded-lg text-xs font-semibold border transition cursor-pointer ${
+                            (settings.temp_retention_days || 30) === d
+                              ? 'bg-indigo-600 text-white border-indigo-600'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {d === 30 ? '30d (Default)' : `${d}d`}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Runs incrementally after daily sweeps: only scans newly modified <code>designs/</code> folders since the last scan and stores references in <code>wp_nbd_s3_temp_refs</code>.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               {/* Activity Log Protection Configuration */}
               <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
                 <div className="flex items-center justify-between gap-4">
@@ -2964,6 +3113,51 @@ export default function App() {
                   {purgingSavedDesigns ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                   {purgingSavedDesigns ? 'Purging Expired...' : 'Purge Expired Saved Designs Now'}
                 </button>
+              </div>
+            </div>
+
+            {/* Temp Folder Reference-Aware Purge */}
+            <div className="border-t border-slate-100 pt-5 mt-5">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50 p-5 rounded-xl border border-slate-200">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-teal-100 text-teal-800 border border-teal-200">
+                      TEMP FOLDER SWEEP
+                    </span>
+                    <h4 className="text-sm font-bold text-slate-900">Purge Unreferenced <code>temp/</code> Files (Auto-Chaining)</h4>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-1">
+                    Updates the incremental reference index from remaining <code>designs/</code> and deletes unreferenced files in <code>temp/</code> older than {settings.temp_retention_days || 30} days. Referenced uploads and <code>pdf-templates/</code> are protected.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-3 mt-2.5 text-xs">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-slate-700">
+                      <Database className="w-3.5 h-3.5 text-slate-500" /> Indexed Refs: <strong>{tempStats?.indexed_refs ?? 0}</strong>
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-slate-700">
+                      <Clock className="w-3.5 h-3.5 text-slate-500" /> Last Scan: <strong>{tempStats?.last_scan_text || 'Never'}</strong>
+                    </span>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2.5 self-start md:self-center">
+                  <button
+                    type="button"
+                    onClick={handleTempIndexNow}
+                    disabled={indexingTemp || sweepingTemp}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-xl font-semibold shadow-2xs transition whitespace-nowrap text-xs cursor-pointer"
+                  >
+                    {indexingTemp ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
+                    {indexingTemp ? 'Indexing...' : 'Rebuild Index'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleTempSweepNow}
+                    disabled={sweepingTemp || indexingTemp}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold shadow-sm transition whitespace-nowrap text-xs sm:text-sm cursor-pointer"
+                  >
+                    {sweepingTemp ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    {sweepingTemp ? 'Starting Sweep...' : 'Purge Orphaned Temp Now'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

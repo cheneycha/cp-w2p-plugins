@@ -2,7 +2,7 @@
 /**
  * Plugin Name: NBDesigner S3 Offload
  * Description: Offload NBDesigner design assets, print PDFs, and large fonts to S3-compatible object storage (Wasabi, Backblaze B2, Bunny, DigitalOcean, AWS) with CDN delivery and tiered lifecycle archiving.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: Cheney Chang
  * Text Domain: nbd-s3-offload
  * Domain Path: /languages
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define Constants
-define( 'NBD_S3_VERSION', '1.0.0' );
+define( 'NBD_S3_VERSION', '1.0.1' );
 define( 'NBD_S3_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'NBD_S3_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'NBD_S3_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -51,6 +51,7 @@ final class NBD_S3_Offload_Plugin {
         require_once NBD_S3_PLUGIN_DIR . 'includes/class-settings.php';
         require_once NBD_S3_PLUGIN_DIR . 'includes/class-logger.php';
         require_once NBD_S3_PLUGIN_DIR . 'includes/class-tier-lifecycle.php';
+        require_once NBD_S3_PLUGIN_DIR . 'includes/class-temp-lifecycle.php';
         require_once NBD_S3_PLUGIN_DIR . 'includes/class-rest-api.php';
         require_once NBD_S3_PLUGIN_DIR . 'includes/class-admin.php';
     }
@@ -67,6 +68,7 @@ final class NBD_S3_Offload_Plugin {
 
         // Tiered lifecycle & hydration engine
         NBD_S3_Tier_Lifecycle::init();
+        NBD_S3_Temp_Lifecycle::init();
 
         // Admin dashboard & menus
         if ( is_admin() ) {
@@ -140,6 +142,10 @@ register_deactivation_hook( __FILE__, function() {
         as_unschedule_all_actions( 'nbd_s3_cron_cleanup_drafts' );
         as_unschedule_all_actions( 'nbd_s3_chain_cleanup_drafts' );
         as_unschedule_all_actions( 'nbd_s3_cron_saved_designs_lifecycle' );
+        as_unschedule_all_actions( 'nbd_s3_chain_saved_designs_purge' );
+        as_unschedule_all_actions( 'nbd_s3_cron_temp_cleanup' );
+        as_unschedule_all_actions( 'nbd_s3_chain_temp_index' );
+        as_unschedule_all_actions( 'nbd_s3_chain_temp_sweep' );
     }
 } );
 

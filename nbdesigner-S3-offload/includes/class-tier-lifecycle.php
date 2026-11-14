@@ -1786,6 +1786,9 @@ class NBD_S3_Tier_Lifecycle {
             if ( ! as_has_scheduled_action( 'nbd_s3_cron_cleanup_drafts' ) ) {
                 as_schedule_recurring_action( time() + 3600, DAY_IN_SECONDS, 'nbd_s3_cron_cleanup_drafts' );
             }
+            if ( ! as_has_scheduled_action( 'nbd_s3_cron_temp_cleanup' ) ) {
+                as_schedule_recurring_action( $start_ts + 1800, DAY_IN_SECONDS, 'nbd_s3_cron_temp_cleanup' );
+            }
         }
     }
 
@@ -1802,11 +1805,13 @@ class NBD_S3_Tier_Lifecycle {
             || self::has_action_in_queue( 'nbd_s3_chain_cold_sweep', array( 'pending', 'in-progress' ) );
         $has_pending_draft_cleanup = self::has_action_in_queue( 'nbd_s3_chain_cleanup_drafts', array( 'pending', 'in-progress' ) );
         $has_pending_saved_purge   = self::has_action_in_queue( 'nbd_s3_chain_saved_designs_purge', array( 'pending', 'in-progress' ) );
+        $has_pending_temp_index    = self::has_action_in_queue( 'nbd_s3_chain_temp_index', array( 'pending', 'in-progress' ) );
+        $has_pending_temp_sweep    = self::has_action_in_queue( 'nbd_s3_chain_temp_sweep', array( 'pending', 'in-progress' ) );
 
-        if ( ( $has_pending_items || $has_pending_draft_cleanup || $has_pending_saved_purge ) && empty( $settings['sync_paused'] ) ) {
+        if ( ( $has_pending_items || $has_pending_draft_cleanup || $has_pending_saved_purge || $has_pending_temp_index || $has_pending_temp_sweep ) && empty( $settings['sync_paused'] ) ) {
             $is_running = true;
         }
-        if ( $has_pending_saved_purge ) {
+        if ( $has_pending_saved_purge || $has_pending_temp_index || $has_pending_temp_sweep ) {
             $is_running = true;
         }
 
@@ -1818,6 +1823,10 @@ class NBD_S3_Tier_Lifecycle {
         $action_label = 'Idle';
         if ( $has_pending_saved_purge ) {
             $action_label = 'Saved Designs Purge (Auto-Chaining Active)';
+        } elseif ( $has_pending_temp_index ) {
+            $action_label = 'Temp Reference Indexer (Auto-Chaining Active)';
+        } elseif ( $has_pending_temp_sweep ) {
+            $action_label = 'Temp Folder Purge (Auto-Chaining Active)';
         } elseif ( ! empty( $settings['sync_paused'] ) ) {
             $action_label = 'Paused (Safe Mode)';
         } elseif ( $is_running ) {
@@ -2431,8 +2440,11 @@ class NBD_S3_Tier_Lifecycle {
                 // S3 failure non-fatal to DB deletion
             }
 
-            // 3. Unregister from offload registry if present
+            // 3. Unregister from offload registry and temp reference index if present
             self::record_folder_restored( $folder );
+            if ( class_exists( 'NBD_S3_Temp_Lifecycle' ) ) {
+                NBD_S3_Temp_Lifecycle::delete_refs_for_folder( $folder );
+            }
         }
 
         // 4. Delete row from database

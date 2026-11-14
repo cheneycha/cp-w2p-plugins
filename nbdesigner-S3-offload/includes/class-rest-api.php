@@ -72,6 +72,24 @@ class NBD_S3_REST_API {
             'permission_callback' => array( __CLASS__, 'check_permission' ),
         ) );
 
+        register_rest_route( self::NAMESPACE, '/temp/stats', array(
+            'methods'             => \WP_REST_Server::READABLE,
+            'callback'            => array( __CLASS__, 'get_temp_stats' ),
+            'permission_callback' => array( __CLASS__, 'check_permission' ),
+        ) );
+
+        register_rest_route( self::NAMESPACE, '/temp/index-now', array(
+            'methods'             => \WP_REST_Server::CREATABLE,
+            'callback'            => array( __CLASS__, 'trigger_temp_index' ),
+            'permission_callback' => array( __CLASS__, 'check_permission' ),
+        ) );
+
+        register_rest_route( self::NAMESPACE, '/temp/sweep-now', array(
+            'methods'             => \WP_REST_Server::CREATABLE,
+            'callback'            => array( __CLASS__, 'trigger_temp_sweep' ),
+            'permission_callback' => array( __CLASS__, 'check_permission' ),
+        ) );
+
         register_rest_route( self::NAMESPACE, '/whitelist/restore-all', array(
             'methods'             => \WP_REST_Server::CREATABLE,
             'callback'            => array( __CLASS__, 'restore_whitelisted_templates' ),
@@ -481,11 +499,14 @@ class NBD_S3_REST_API {
         // If pausing (Safe Mode active), immediately unschedule any queued offload tasks and clear active indicator
         if ( $new_pause_state ) {
             set_transient( 'nbd_s3_saved_purge_cancelled', 1, 300 );
+            set_transient( 'nbd_s3_temp_sweep_cancelled', 1, 300 );
             if ( function_exists( 'as_unschedule_all_actions' ) ) {
                 as_unschedule_all_actions( 'nbd_s3_async_offload_item' );
                 as_unschedule_all_actions( 'nbd_s3_chain_cold_sweep' );
                 as_unschedule_all_actions( 'nbd_s3_chain_cleanup_drafts' );
                 as_unschedule_all_actions( 'nbd_s3_chain_saved_designs_purge' );
+                as_unschedule_all_actions( 'nbd_s3_chain_temp_index' );
+                as_unschedule_all_actions( 'nbd_s3_chain_temp_sweep' );
             }
             delete_transient( 'nbd_s3_sync_status' );
         }
@@ -642,6 +663,111 @@ class NBD_S3_REST_API {
             'purged_count' => $result['purged_count'] ?? 0,
             'stats'        => NBD_S3_Tier_Lifecycle::get_saved_designs_stats(),
             'sync_status'  => NBD_S3_Tier_Lifecycle::get_sync_status(),
+        ), 200 );
+    }
+
+    /**
+     * GET /temp/stats
+     */
+    public static function get_temp_stats(): \WP_REST_Response {
+        return new \WP_REST_Response( NBD_S3_Temp_Lifecycle::get_stats(), 200 );
+    }
+
+    /**
+     * POST /temp/index-now
+     */
+    public static function trigger_temp_index( \WP_REST_Request $request ): \WP_REST_Response {
+        $params       = $request->get_json_params() ?: array();
+        $full_rebuild = ! isset( $params['full_rebuild'] ) || ! empty( $params['full_rebuild'] );
+
+        if ( NBD_S3_Tier_Lifecycle::has_action_in_queue( 'nbd_s3_chain_temp_index', array( 'pending', 'in-progress' ) ) ) {
+            return new \WP_REST_Response( array(
+                'success'     => true,
+                'message'     => __( 'Temp reference indexer is already running in the background.', 'nbd-s3-offload' ),
+                'temp_stats'  => NBD_S3_Temp_Lifecycle::get_stats(),
+                'sync_status' => NBD_S3_Tier_Lifecycle::get_sync_status(),
+            ), 200 );
+        }
+
+        delete_transient( 'nbd_s3_temp_sweep_cancelled' );
+
+        if ( function_exists( 'as_schedule_single_action' ) ) {
+            as_schedule_single_action( time() + 1, 'nbd_s3_chain_temp_index', array( 0, $full_rebuild, false, true ) );
+            if ( function_exists( 'spawn_cron' ) ) {
+                spawn_cron();
+            }
+
+            $msg = $full_rebuild
+                ? __( 'Full temp reference index rebuild queued in the background (500 design folders per batch).', 'nbd-s3-offload' )
+                : __( 'Incremental temp reference index queued in the background.', 'nbd-s3-offload' );
+
+            return new \WP_REST_Response( array(
+                'success'     => true,
+                'queued'      => true,
+                'message'     => $msg,
+                'temp_stats'  => NBD_S3_Temp_Lifecycle::get_stats(),
+                'sync_status' => NBD_S3_Tier_Lifecycle::get_sync_status(),
+            ), 200 );
+        }
+
+        $res = NBD_S3_Temp_Lifecycle::run_temp_index( 0, $full_rebuild, false, true );
+        return new \WP_REST_Response( array(
+            'success'     => $res['success'] ?? true,
+            'message'     => $res['message'] ?? __( 'Temp reference index completed.', 'nbd-s3-offload' ),
+            'temp_stats'  => NBD_S3_Temp_Lifecycle::get_stats(),
+            'sync_status' => NBD_S3_Tier_Lifecycle::get_sync_status(),
+        ), 200 );
+    }
+
+    /**
+     * POST /temp/sweep-now
+     */
+    public static function trigger_temp_sweep(): \WP_REST_Response {
+        $already_running = NBD_S3_Tier_Lifecycle::has_action_in_queue( 'nbd_s3_chain_temp_index', array( 'pending', 'in-progress' ) )
+            || NBD_S3_Tier_Lifecycle::has_action_in_queue( 'nbd_s3_chain_temp_sweep', array( 'pending', 'in-progress' ) );
+
+        if ( $already_running ) {
+            return new \WP_REST_Response( array(
+                'success'     => true,
+                'message'     => __( 'Temp folder sweep is already running in the background.', 'nbd-s3-offload' ),
+                'temp_stats'  => NBD_S3_Temp_Lifecycle::get_stats(),
+                'sync_status' => NBD_S3_Tier_Lifecycle::get_sync_status(),
+            ), 200 );
+        }
+
+        delete_transient( 'nbd_s3_temp_sweep_cancelled' );
+
+        // Run incremental index first (or full baseline if never scanned), then chain directly into temp sweep
+        $last_scan_ts = (int) get_option( 'nbd_s3_temp_last_scan_ts', 0 );
+        $full_rebuild = ( $last_scan_ts <= 0 );
+
+        if ( function_exists( 'as_schedule_single_action' ) ) {
+            as_schedule_single_action( time() + 1, 'nbd_s3_chain_temp_index', array( 0, $full_rebuild, true, true ) );
+            if ( function_exists( 'spawn_cron' ) ) {
+                spawn_cron();
+            }
+
+            $msg = $full_rebuild
+                ? __( 'Baseline reference scan + orphaned temp/ purge queued in the background (auto-chaining active).', 'nbd-s3-offload' )
+                : __( 'Incremental reference scan + orphaned temp/ purge queued in the background (auto-chaining active).', 'nbd-s3-offload' );
+
+            NBD_S3_Logger::log( 'TEMP_PURGE', $msg, array( 'full_rebuild' => $full_rebuild ), 'info' );
+
+            return new \WP_REST_Response( array(
+                'success'     => true,
+                'queued'      => true,
+                'message'     => $msg,
+                'temp_stats'  => NBD_S3_Temp_Lifecycle::get_stats(),
+                'sync_status' => NBD_S3_Tier_Lifecycle::get_sync_status(),
+            ), 200 );
+        }
+
+        $res = NBD_S3_Temp_Lifecycle::run_temp_index( 0, $full_rebuild, true, true );
+        return new \WP_REST_Response( array(
+            'success'     => $res['success'] ?? true,
+            'message'     => $res['message'] ?? __( 'Temp folder sweep completed.', 'nbd-s3-offload' ),
+            'temp_stats'  => NBD_S3_Temp_Lifecycle::get_stats(),
+            'sync_status' => NBD_S3_Tier_Lifecycle::get_sync_status(),
         ), 200 );
     }
 }

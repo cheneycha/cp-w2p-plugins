@@ -44,6 +44,9 @@ class NBD_S3_Settings {
             'saved_designs_warning_days'       => 7,  // Display warning & send email Y days before purge (default: 7 days)
             'saved_designs_send_warning_email' => true, // Dispatch warning email to customer Y days prior
             'saved_designs_send_purge_email'   => true, // Dispatch notification email when design is purged
+            // Temp Folder Lifecycle (Reference-Aware Orphan Sweeper):
+            'enable_temp_cleanup'              => false, // Opt-in daily temp/ orphan cleanup
+            'temp_retention_days'              => 30,    // Purge unreferenced temp/ files older than X days
             // Safety & Sync Master Controls:
             'sync_paused'                => true, // Master Kill-Switch: Paused by default on activation
             'sync_schedule_time'         => '03:00', // Daily sync scheduled run time (24h HH:MM)
@@ -153,6 +156,8 @@ class NBD_S3_Settings {
             'saved_designs_warning_days'       => max( 1, min( 60, absint( $data['saved_designs_warning_days'] ?? $current['saved_designs_warning_days'] ?? 7 ) ) ),
             'saved_designs_send_warning_email' => ! empty( $data['saved_designs_send_warning_email'] ),
             'saved_designs_send_purge_email'   => ! empty( $data['saved_designs_send_purge_email'] ),
+            'enable_temp_cleanup'              => ! empty( $data['enable_temp_cleanup'] ),
+            'temp_retention_days'              => max( 1, min( 3650, absint( $data['temp_retention_days'] ?? $current['temp_retention_days'] ?? 30 ) ) ),
             'sync_paused'                => isset( $data['sync_paused'] ) ? ! empty( $data['sync_paused'] ) : ( $current['sync_paused'] ?? true ),
             'sync_schedule_time'         => sanitize_text_field( $data['sync_schedule_time'] ?? $current['sync_schedule_time'] ?? '03:00' ),
             'enable_activity_log'        => isset( $data['enable_activity_log'] ) ? ! empty( $data['enable_activity_log'] ) : ( $current['enable_activity_log'] ?? true ),
