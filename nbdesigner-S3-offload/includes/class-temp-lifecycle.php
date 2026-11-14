@@ -54,6 +54,21 @@ class NBD_S3_Temp_Lifecycle {
         }
 
         global $wpdb;
+
+        // Upgrade migration from v1.0.1-v1.0.4 (before ref_hash column was introduced in v1.0.5)
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$table_name}'" ) === $table_name ) {
+            $has_ref_hash = $wpdb->get_var( "SHOW COLUMNS FROM {$table_name} LIKE 'ref_hash'" );
+            if ( empty( $has_ref_hash ) ) {
+                $wpdb->query( "ALTER TABLE {$table_name} ADD COLUMN ref_hash CHAR(32) NOT NULL DEFAULT '' AFTER id" );
+                $wpdb->query( "UPDATE {$table_name} SET ref_hash = MD5(CONCAT(LOWER(temp_path), '|', design_folder))" );
+                $wpdb->query( "DELETE t1 FROM {$table_name} t1 INNER JOIN {$table_name} t2 ON t1.ref_hash = t2.ref_hash AND t1.id > t2.id" );
+                $has_uniq_ref = $wpdb->get_var( "SHOW INDEX FROM {$table_name} WHERE Key_name = 'uniq_ref'" );
+                if ( ! empty( $has_uniq_ref ) ) {
+                    $wpdb->query( "ALTER TABLE {$table_name} DROP INDEX uniq_ref" );
+                }
+            }
+        }
+
         $charset_collate = $wpdb->get_charset_collate();
 
         $sql = "CREATE TABLE {$table_name} (
@@ -228,6 +243,7 @@ class NBD_S3_Temp_Lifecycle {
             set_transient( 'nbd_s3_temp_scan_start_ts', time(), 6 * HOUR_IN_SECONDS );
             self::index_postmeta_temp_refs();
             self::index_order_itemmeta_temp_refs();
+            self::index_cart_session_temp_refs();
             self::index_nbdesigner_options_temp_refs();
             self::index_auxiliary_design_dirs();
         }
@@ -643,7 +659,7 @@ class NBD_S3_Temp_Lifecycle {
         if ( $dir_mtime >= $cutoff ) {
             return true;
         }
-        foreach ( array( 'design.json', 'config.json', 'product.json', 'option.json' ) as $f ) {
+        foreach ( array( 'design.json', 'config.json', 'product.json', 'option.json', 'part', 'part/svgpath' ) as $f ) {
             $fm = (int) @filemtime( $folder_path . '/' . $f );
             if ( $fm >= $cutoff ) {
                 return true;
@@ -933,7 +949,7 @@ class NBD_S3_Temp_Lifecycle {
         }
 
         $existing_rows = $wpdb->get_results(
-            "SELECT temp_path, design_folder, updated_at FROM {$table} WHERE design_folder NOT LIKE 'post\_%' AND design_folder NOT LIKE 'order\_item\_%' AND design_folder NOT LIKE 'nbd\_opt\_%' AND design_folder NOT LIKE 'wp\_opt\_%' AND design_folder NOT LIKE 'aux\_%'",
+            "SELECT temp_path, design_folder, updated_at FROM {$table} WHERE design_folder NOT LIKE 'post\_%' AND design_folder NOT LIKE 'order\_item\_%' AND design_folder NOT LIKE 'cart\_%' AND design_folder NOT LIKE 'nbd\_opt\_%' AND design_folder NOT LIKE 'wp\_opt\_%' AND design_folder NOT LIKE 'aux\_%'",
             ARRAY_A
         );
 
@@ -1162,6 +1178,62 @@ class NBD_S3_Temp_Lifecycle {
     }
 
     /**
+     * Index active WooCommerce cart sessions and persistent customer carts for pending designs.
+     */
+    private static function index_cart_session_temp_refs(): void {
+        global $wpdb;
+        $now_mysql      = current_time( 'mysql', true );
+        $rows_to_insert = array();
+
+        // 1. Active guest/user cart sessions in woocommerce_sessions
+        $sess_table = $wpdb->prefix . 'woocommerce_sessions';
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$sess_table}'" ) === $sess_table ) {
+            $sess_rows = $wpdb->get_results(
+                "SELECT session_id, session_value FROM {$sess_table} WHERE session_value LIKE '%nbdesigner%temp%' OR session_value LIKE '%origin_bg_pdf%' OR session_value LIKE '%origin_pdf%'",
+                ARRAY_A
+            );
+
+            if ( ! empty( $sess_rows ) && is_array( $sess_rows ) ) {
+                foreach ( $sess_rows as $row ) {
+                    $sess_key  = 'cart_sess_' . (int) $row['session_id'];
+                    $extracted = self::extract_temp_refs_from_string( (string) $row['session_value'] );
+                    foreach ( $extracted as $temp_rel ) {
+                        $rows_to_insert[] = array( $temp_rel, $sess_key, $now_mysql );
+                        if ( count( $rows_to_insert ) >= 200 ) {
+                            self::bulk_insert_refs( $rows_to_insert );
+                            $rows_to_insert = array();
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Persistent carts stored in usermeta for registered customers
+        $user_rows = $wpdb->get_results(
+            "SELECT user_id, meta_value FROM {$wpdb->usermeta} WHERE meta_key LIKE '_woocommerce_persistent_cart%' AND (meta_value LIKE '%nbdesigner%temp%' OR meta_value LIKE '%origin_bg_pdf%' OR meta_value LIKE '%origin_pdf%')",
+            ARRAY_A
+        );
+
+        if ( ! empty( $user_rows ) && is_array( $user_rows ) ) {
+            foreach ( $user_rows as $row ) {
+                $user_key  = 'cart_user_' . (int) $row['user_id'];
+                $extracted = self::extract_temp_refs_from_string( (string) $row['meta_value'] );
+                foreach ( $extracted as $temp_rel ) {
+                    $rows_to_insert[] = array( $temp_rel, $user_key, $now_mysql );
+                    if ( count( $rows_to_insert ) >= 200 ) {
+                        self::bulk_insert_refs( $rows_to_insert );
+                        $rows_to_insert = array();
+                    }
+                }
+            }
+        }
+
+        if ( ! empty( $rows_to_insert ) ) {
+            self::bulk_insert_refs( $rows_to_insert );
+        }
+    }
+
+    /**
      * Index `wp_nbdesigner_options` (Printing Options `fields` / `builder`) and non-transient `wp_options` for `temp/` references.
      */
     private static function index_nbdesigner_options_temp_refs(): void {
@@ -1242,18 +1314,26 @@ class NBD_S3_Temp_Lifecycle {
             return array();
         }
         global $wpdb;
-        $table        = self::get_table_name();
-        $placeholders = implode( ',', array_fill( 0, count( $rel_paths ), '%s' ) );
-        $sql          = $wpdb->prepare( "SELECT DISTINCT temp_path FROM {$table} WHERE temp_path IN ({$placeholders})", $rel_paths );
-        $matched      = $wpdb->get_col( $sql );
+        $table   = self::get_table_name();
+        $unique  = array_values( array_unique( $rel_paths ) );
+        $chunks  = array_chunk( $unique, 500 );
+        $map     = array();
 
-        if ( empty( $matched ) || ! is_array( $matched ) ) {
-            return array();
+        foreach ( $chunks as $chunk ) {
+            if ( empty( $chunk ) ) {
+                continue;
+            }
+            $placeholders = implode( ',', array_fill( 0, count( $chunk ), '%s' ) );
+            $sql          = $wpdb->prepare( "SELECT DISTINCT temp_path FROM {$table} WHERE temp_path IN ({$placeholders})", $chunk );
+            $matched      = $wpdb->get_col( $sql );
+
+            if ( ! empty( $matched ) && is_array( $matched ) ) {
+                foreach ( $matched as $m ) {
+                    $map[ self::norm_rel_key( (string) $m ) ] = true;
+                }
+            }
         }
-        $map = array();
-        foreach ( $matched as $m ) {
-            $map[ self::norm_rel_key( (string) $m ) ] = true;
-        }
+
         return $map;
     }
 
@@ -1277,7 +1357,8 @@ class NBD_S3_Temp_Lifecycle {
                     continue;
                 }
                 // Unconditionally protect pdf-templates directory
-                if ( 'pdf-templates' === $rel || str_starts_with( strtolower( $rel ), 'pdf-templates/' ) ) {
+                $rel_lower = strtolower( $rel );
+                if ( 'pdf-templates' === $rel_lower || str_starts_with( $rel_lower, 'pdf-templates/' ) ) {
                     continue;
                 }
                 $dirs[] = $rel;
