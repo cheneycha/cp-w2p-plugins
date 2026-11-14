@@ -13,6 +13,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class NBD_S3_Client {
 
+    private string $provider;
+    private bool $is_bunny;
     private string $access_key;
     private string $secret_key;
     private string $region;
@@ -24,6 +26,7 @@ class NBD_S3_Client {
      * Constructor
      */
     public function __construct( array $config = array() ) {
+        $this->provider       = strtolower( (string) ( $config['provider'] ?? '' ) );
         $this->access_key     = (string) ( $config['access_key'] ?? '' );
         $this->secret_key     = (string) ( $config['secret_key'] ?? '' );
         $this->region         = (string) ( $config['region'] ?? 'us-east-1' );
@@ -34,9 +37,11 @@ class NBD_S3_Client {
         // Normalize endpoint (strip http:// or https:// and trailing slashes)
         $this->endpoint = preg_replace( '#^https?://#i', '', rtrim( $this->endpoint, '/' ) );
 
+        $this->is_bunny = ( 'bunny' === $this->provider ) || str_ends_with( strtolower( $this->endpoint ), 'bunnycdn.com' );
+
         // Auto-sanitize: If user provided bucket as part of endpoint (e.g. mybucket.sgp1.digitaloceanspaces.com),
         // normalize endpoint and enforce virtual-hosted style to prevent duplicate bucket path nesting.
-        if ( ! empty( $this->bucket ) && preg_match( '#^' . preg_quote( $this->bucket, '#' ) . '\.(.+)$#i', $this->endpoint, $matches ) ) {
+        if ( ! $this->is_bunny && ! empty( $this->bucket ) && preg_match( '#^' . preg_quote( $this->bucket, '#' ) . '\.(.+)$#i', $this->endpoint, $matches ) ) {
             $this->endpoint       = $matches[1];
             $this->use_path_style = false;
         }
@@ -46,10 +51,14 @@ class NBD_S3_Client {
      * Test connection by writing, reading, and deleting a probe test object.
      */
     public function test_connection(): array {
-        if ( empty( $this->access_key ) || empty( $this->secret_key ) || empty( $this->bucket ) ) {
+        $has_creds = $this->is_bunny
+            ? ( ( ! empty( $this->secret_key ) || ! empty( $this->access_key ) ) && ! empty( $this->bucket ) )
+            : ( ! empty( $this->access_key ) && ! empty( $this->secret_key ) && ! empty( $this->bucket ) );
+
+        if ( ! $has_creds ) {
             return array(
                 'success' => false,
-                'message' => __( 'Missing required S3 credentials or bucket name.', 'nbd-s3-offload' ),
+                'message' => __( 'Missing required storage credentials or bucket/zone name.', 'nbd-s3-offload' ),
             );
         }
 
@@ -131,6 +140,15 @@ class NBD_S3_Client {
      * Useful for DigitalOcean Spaces and S3 compatible providers.
      */
     public function set_object_acl( string $key, string $acl = 'public-read' ): array|\WP_Error {
+        if ( $this->is_bunny ) {
+            // Bunny Storage controls public access via its Pull Zone; per-object S3 ACLs do not apply.
+            return array(
+                'code'    => 200,
+                'headers' => array(),
+                'body'    => '',
+            );
+        }
+
         $key = ltrim( $key, '/' );
         $headers = array(
             'x-amz-acl' => $acl,
@@ -186,6 +204,42 @@ class NBD_S3_Client {
      * List objects with optional prefix.
      */
     public function list_objects( string $prefix = '', int $max_keys = 1000 ): array|\WP_Error {
+        if ( $this->is_bunny ) {
+            $dir_key  = trim( $prefix, '/' );
+            $dir_key  = '' !== $dir_key ? $dir_key . '/' : '';
+            $response = $this->send_request( 'GET', $dir_key );
+            if ( is_wp_error( $response ) ) {
+                return $response;
+            }
+
+            $entries = json_decode( $response['body'] ?? '', true );
+            if ( ! is_array( $entries ) ) {
+                return array();
+            }
+
+            $items = array();
+            foreach ( $entries as $entry ) {
+                if ( ! empty( $entry['IsDirectory'] ) ) {
+                    continue;
+                }
+                $obj_name = (string) ( $entry['ObjectName'] ?? '' );
+                if ( '' === $obj_name ) {
+                    continue;
+                }
+                $items[] = array(
+                    'key'           => $dir_key . $obj_name,
+                    'size'          => (int) ( $entry['Length'] ?? 0 ),
+                    'etag'          => trim( (string) ( $entry['Checksum'] ?? '' ), '"' ),
+                    'last_modified' => (string) ( $entry['LastChanged'] ?? '' ),
+                );
+                if ( count( $items ) >= $max_keys ) {
+                    break;
+                }
+            }
+
+            return $items;
+        }
+
         $query = array(
             'list-type' => '2',
             'max-keys'  => (string) $max_keys,
@@ -221,9 +275,13 @@ class NBD_S3_Client {
     }
 
     /**
-     * Execute HTTP request signed with SigV4.
+     * Execute HTTP request signed with SigV4 (or Bunny Storage REST API).
      */
     private function send_request( string $method, string $key = '', array $query = array(), array $headers = array(), ?string $payload = '' ): array|\WP_Error {
+        if ( $this->is_bunny ) {
+            return $this->send_bunny_request( $method, $key, $headers, $payload );
+        }
+
         $datetime = gmdate( 'Ymd\THis\Z' );
         $date     = gmdate( 'Ymd' );
 
@@ -332,6 +390,59 @@ class NBD_S3_Client {
                 }
             }
             return new \WP_Error( "s3_error_{$code}", $err_msg );
+        }
+
+        return array(
+            'code'    => $code,
+            'headers' => $resp_headers,
+            'body'    => $body,
+        );
+    }
+
+    /**
+     * Execute HTTP request against Bunny Storage native REST API (AccessKey auth).
+     */
+    private function send_bunny_request( string $method, string $key = '', array $headers = array(), ?string $payload = '' ): array|\WP_Error {
+        $bunny_key = ! empty( $this->secret_key ) ? $this->secret_key : $this->access_key;
+
+        $encoded_segments = array_map( 'rawurlencode', explode( '/', ltrim( $key, '/' ) ) );
+        $encoded_key      = implode( '/', $encoded_segments );
+        $url              = 'https://' . $this->endpoint . '/' . rawurlencode( $this->bucket ) . ( '' !== $encoded_key ? '/' . $encoded_key : '/' );
+
+        // Strip S3-specific headers before forwarding to Bunny Storage
+        unset( $headers['x-amz-acl'] );
+        $headers['AccessKey'] = $bunny_key;
+
+        $upper_method = strtoupper( $method );
+        $args         = array(
+            'method'  => $upper_method,
+            'headers' => $headers,
+            'timeout' => 45,
+        );
+        if ( 'PUT' === $upper_method || 'POST' === $upper_method ) {
+            $args['body'] = $payload ?? '';
+        }
+
+        $response = wp_remote_request( $url, $args );
+        if ( is_wp_error( $response ) ) {
+            return $response;
+        }
+
+        $code         = wp_remote_retrieve_response_code( $response );
+        $body         = wp_remote_retrieve_body( $response );
+        $resp_headers = wp_remote_retrieve_headers( $response );
+
+        if ( $code < 200 || $code >= 300 ) {
+            $err_msg = "Bunny Storage Error HTTP {$code}";
+            if ( ! empty( $body ) ) {
+                $json = json_decode( $body, true );
+                if ( is_array( $json ) && ! empty( $json['Message'] ) ) {
+                    $err_msg .= ': ' . (string) $json['Message'];
+                } else {
+                    $err_msg .= ': ' . substr( strip_tags( $body ), 0, 200 );
+                }
+            }
+            return new \WP_Error( "bunny_error_{$code}", $err_msg );
         }
 
         return array(

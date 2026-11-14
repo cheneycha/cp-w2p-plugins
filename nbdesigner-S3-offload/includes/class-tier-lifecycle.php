@@ -58,6 +58,7 @@ class NBD_S3_Tier_Lifecycle {
         if ( null === self::$client ) {
             $settings = NBD_S3_Settings::get_all();
             self::$client = new NBD_S3_Client( array(
+                'provider'       => $settings['provider'],
                 'access_key'     => $settings['access_key'],
                 'secret_key'     => $settings['secret_key'],
                 'region'         => $settings['region'],

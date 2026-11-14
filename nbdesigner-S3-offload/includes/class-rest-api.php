@@ -193,6 +193,7 @@ class NBD_S3_REST_API {
         }
 
         $client = new NBD_S3_Client( array(
+            'provider'       => $params['provider'] ?? $current['provider'],
             'access_key'     => $params['access_key'] ?? $current['access_key'],
             'secret_key'     => $secret,
             'region'         => $params['region'] ?? $current['region'],

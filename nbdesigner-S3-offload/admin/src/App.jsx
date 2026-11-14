@@ -965,7 +965,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '0.3.0'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '0.3.1'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">
@@ -1547,33 +1547,38 @@ export default function App() {
                   type="text"
                   value={settings.endpoint}
                   onChange={(e) => setSettings({ ...settings, endpoint: e.target.value })}
-                  placeholder="e.g. s3.wasabisys.com"
+                  placeholder={settings.provider === 'bunny' ? 'e.g. sg.storage.bunnycdn.com' : 'e.g. s3.wasabisys.com'}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-mono focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
                 />
-                <p className="text-xs text-slate-400 mt-1">Host without protocol (e.g. <code>s3.wasabisys.com</code>)</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  {settings.provider === 'bunny'
+                    ? <>Bunny Storage host without protocol (e.g. <code>sg.storage.bunnycdn.com</code> or <code>storage.bunnycdn.com</code>)</>
+                    : <>Host without protocol (e.g. <code>s3.wasabisys.com</code>)</>}
+                </p>
               </div>
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                  Bucket Name
+                  {settings.provider === 'bunny' ? 'Storage Zone Name' : 'Bucket Name'}
                 </label>
                 <input
                   type="text"
                   value={settings.bucket}
                   onChange={(e) => setSettings({ ...settings, bucket: e.target.value })}
-                  placeholder="your-company-nbdesigner-assets"
+                  placeholder={settings.provider === 'bunny' ? 'your-bunny-storage-zone' : 'your-company-nbdesigner-assets'}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                  Access Key ID
+                  {settings.provider === 'bunny' ? 'Access Key ID (Optional for Bunny)' : 'Access Key ID'}
                 </label>
                 <input
                   type="text"
                   value={settings.access_key}
                   onChange={(e) => setSettings({ ...settings, access_key: e.target.value })}
+                  placeholder={settings.provider === 'bunny' ? 'Leave blank or enter Storage Zone Name' : ''}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-mono focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
                   autoComplete="off"
                 />
@@ -1581,13 +1586,13 @@ export default function App() {
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                  Secret Access Key
+                  {settings.provider === 'bunny' ? 'Storage Zone Password (AccessKey)' : 'Secret Access Key'}
                 </label>
                 <input
                   type="password"
                   value={settings.secret_key}
                   onChange={(e) => setSettings({ ...settings, secret_key: e.target.value })}
-                  placeholder={settings.secret_key ? '••••••••••••••••' : 'Enter Secret Key'}
+                  placeholder={settings.secret_key ? '••••••••••••••••' : (settings.provider === 'bunny' ? 'Enter Bunny FTP & API Password' : 'Enter Secret Key')}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-mono focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
                   autoComplete="new-password"
                 />
@@ -1635,7 +1640,20 @@ export default function App() {
                 </span>
               </div>
 
-              {/* Object Permissions (ACL) for DigitalOcean Spaces / S3 */}
+              {/* Object Permissions (ACL) for DigitalOcean Spaces / S3, or Bunny Storage Pull Zone notice */}
+              {settings.provider === 'bunny' ? (
+                <div className="md:col-span-2 bg-amber-50/70 p-4 rounded-xl border border-amber-200/80 text-xs text-amber-950 flex items-start gap-2.5">
+                  <span className="text-base flex-shrink-0">🐰</span>
+                  <div className="space-y-1">
+                    <p className="font-semibold text-amber-900">
+                      Bunny Storage &amp; Pull Zone Delivery:
+                    </p>
+                    <p className="text-amber-900/90 leading-relaxed">
+                      Bunny Storage uses its native <code>AccessKey</code> REST API (no S3 ACLs required). Make sure you attach a <strong>Bunny Pull Zone</strong> to your Storage Zone, enable <strong>CORS Headers</strong> for web fonts, and enter your Pull Zone URL (e.g. <code>https://cdn.charmingprint.com</code> or <code>https://your-zone.b-cdn.net</code>) in <strong>Public CDN URL</strong> above.
+                    </p>
+                  </div>
+                </div>
+              ) : (
               <div className="md:col-span-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
                   <div>
@@ -1673,6 +1691,7 @@ export default function App() {
                   </div>
                 </div>
               </div>
+              )}
             </div>
 
             <div className="pt-6 border-t border-slate-100 flex items-center justify-between">
