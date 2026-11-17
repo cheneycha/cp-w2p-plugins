@@ -43,6 +43,7 @@ if( !class_exists( 'NBD_FRONTEND_PRINTING_OPTIONS' ) ){
             // Calculate totals on remove from cart/update
             //add_action( 'woocommerce_before_calculate_totals', array( $this, 'on_calculate_totals' ), 1, 1 );
             add_action( 'woocommerce_cart_loaded_from_session', array( $this, 're_calculate_price' ), 1, 1 );
+            add_action( 'woocommerce_after_cart_item_quantity_update', array( $this, 're_calculate_price_on_quantity_update' ), 1, 4 );
             // Add meta to order
             add_action( 'woocommerce_checkout_create_order_line_item', array( $this, 'order_line_item' ), 50, 3 );
             // Change option independent quantity prices to cart fee
@@ -596,37 +597,53 @@ if( !class_exists( 'NBD_FRONTEND_PRINTING_OPTIONS' ) ){
         }
         public function re_calculate_price( $cart ){
             foreach ( $cart->cart_contents as $cart_item_key => $cart_item ) {
-                if( isset( $cart_item['nbo_meta'] ) ){
-                    //$product = $cart_item['data'];
-                    $variation_id   = $cart_item['variation_id'];
-                    $product_id     = $cart_item['product_id'];
-                    $product        = $variation_id ? wc_get_product( $variation_id ) : wc_get_product( $product_id );
-                    $options        = $cart_item['nbo_meta']['options'];
-                    $fields         = $cart_item['nbo_meta']['field'];
-                    //$original_price = $this->format_price( $product->get_price('edit') );
-                    $original_price = (float)$product->get_price( 'edit' );
-                    $quantity       = $cart_item['quantity'];
-                    $option_price   = $this->option_processing( $options, $original_price, $fields, $quantity, $cart_item_key, $product );
-                    if( $option_price['manual_pm'] ){
-                        $original_price   = $option_price['original_price'];
-                    }
-                    if( isset( $cart_item['nbo_meta']['nbdpb'] ) ){
-                        $path   = NBDESIGNER_CUSTOMER_DIR . '/' . $cart_item['nbo_meta']['nbdpb'] . '/preview';
-                        $images = Nbdesigner_IO::get_list_images( $path, 1 );
-                        if( count( $images ) ){
-                            ksort( $images );
-                            $option_price['cart_image'] = Nbdesigner_IO::wp_convert_path_to_url( end( $images ) );
-                        }
-                    }
-                    $adjusted_price = $original_price + $option_price['total_price'] - $option_price['discount_price'];
-                    $adjusted_price = $adjusted_price > 0 ? $adjusted_price : 0;
-                    //$adjusted_price = $this->format_price($adjusted_price);
-                    WC()->cart->cart_contents[ $cart_item_key ]['nbo_meta']['option_price'] = $option_price;
-                    $adjusted_price = apply_filters( 'nbo_adjusted_price', $adjusted_price, $cart_item );
-                    WC()->cart->cart_contents[ $cart_item_key ]['nbo_meta']['price'] = $adjusted_price;
-                    $needed_change  = apply_filters( 'nbo_need_change_cart_item_price', true, WC()->cart->cart_contents[ $cart_item_key ] );
-                    if( $needed_change ) WC()->cart->cart_contents[ $cart_item_key ]['data']->set_price( $adjusted_price ); 
+                $this->re_calculate_cart_item_price( $cart, $cart_item_key, $cart_item );
+            }
+        }
+        public function re_calculate_price_on_quantity_update( $cart_item_key, $quantity, $old_quantity, $cart ){
+            if ( (float) $quantity === (float) $old_quantity || ! isset( $cart->cart_contents[ $cart_item_key ] ) ) {
+                return;
+            }
+
+            $this->re_calculate_cart_item_price( $cart, $cart_item_key, $cart->cart_contents[ $cart_item_key ] );
+        }
+        private function re_calculate_cart_item_price( $cart, $cart_item_key, $cart_item ){
+            if ( ! isset( $cart_item['nbo_meta'] ) ) {
+                return;
+            }
+
+            $variation_id = $cart_item['variation_id'];
+            $product_id   = $cart_item['product_id'];
+            $product      = wc_get_product( $variation_id ? $variation_id : $product_id );
+            if ( ! $product ) {
+                return;
+            }
+
+            $options        = $cart_item['nbo_meta']['options'];
+            $fields         = $cart_item['nbo_meta']['field'];
+            $original_price = (float) $product->get_price( 'edit' );
+            $quantity       = $cart_item['quantity'];
+            $option_price   = $this->option_processing( $options, $original_price, $fields, $quantity, $cart_item_key, $product );
+            if ( $option_price['manual_pm'] ) {
+                $original_price = $option_price['original_price'];
+            }
+            if ( isset( $cart_item['nbo_meta']['nbdpb'] ) ) {
+                $path   = NBDESIGNER_CUSTOMER_DIR . '/' . $cart_item['nbo_meta']['nbdpb'] . '/preview';
+                $images = Nbdesigner_IO::get_list_images( $path, 1 );
+                if ( count( $images ) ) {
+                    ksort( $images );
+                    $option_price['cart_image'] = Nbdesigner_IO::wp_convert_path_to_url( end( $images ) );
                 }
+            }
+
+            $adjusted_price = $original_price + $option_price['total_price'] - $option_price['discount_price'];
+            $adjusted_price = $adjusted_price > 0 ? $adjusted_price : 0;
+            $cart->cart_contents[ $cart_item_key ]['nbo_meta']['option_price'] = $option_price;
+            $adjusted_price = apply_filters( 'nbo_adjusted_price', $adjusted_price, $cart_item );
+            $cart->cart_contents[ $cart_item_key ]['nbo_meta']['price'] = $adjusted_price;
+            $needed_change = apply_filters( 'nbo_need_change_cart_item_price', true, $cart->cart_contents[ $cart_item_key ] );
+            if ( $needed_change ) {
+                $cart->cart_contents[ $cart_item_key ]['data']->set_price( $adjusted_price );
             }
         }
         public function remove_previous_product_from_cart( $passed, $product_id, $qty, $variation_id = '', $variations = array(), $cart_item_data = array() ){

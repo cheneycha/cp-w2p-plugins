@@ -213,15 +213,38 @@ if(!class_exists('NBD_RESOURCE')){
                         $result = $wpdb->delete("$table_name", array('id' => $template_id));
                         if( !$result ) $flag = 0;
                         break;
+                    // CVE-2026-14323: keep mockup ZIP inputs inside the selected design's preview directories.
                     case 'get_mockup':
-                        $_mockups = $_REQUEST['mockups'];
-                        $folder = $_REQUEST['folder'];
-                        $mockups = explode('|', $_mockups);
-                        $path = $path = NBDESIGNER_CUSTOMER_DIR . '/' . $folder . '/';
+                        $folder = isset( $_REQUEST['folder'] ) && is_string( $_REQUEST['folder'] )
+                            ? wp_unslash( $_REQUEST['folder'] )
+                            : '';
+                        $requested_mockups = isset( $_REQUEST['mockups'] ) && is_string( $_REQUEST['mockups'] )
+                            ? wp_unslash( $_REQUEST['mockups'] )
+                            : '';
+                        if ( ! preg_match( '/\A[A-Za-z0-9_-]+\z/', $folder ) || '' === $requested_mockups ) {
+                            $flag = 0;
+                            break;
+                        }
+
+                        $customer_root = realpath( NBDESIGNER_CUSTOMER_DIR );
+                        $design_path = false === $customer_root ? false : realpath( $customer_root . DIRECTORY_SEPARATOR . $folder );
+                        if ( false === $design_path || ! is_dir( $design_path )
+                            || dirname( $design_path ) !== $customer_root ) {
+                            $flag = 0;
+                            break;
+                        }
+
                         $files = array();
-                        foreach($mockups as $mockup){
-                            if(file_exists($path.$mockup)){
-                                $files[] = $path.$mockup;
+                        foreach ( explode( '|', $requested_mockups ) as $mockup ) {
+                            if ( ! preg_match( '~\A(preview|mockup_preview)/([^/\\\\\x00-\x1F\x7F]+\.(?:png|jpe?g|gif|webp|svg))\z~i', $mockup, $parts ) ) {
+                                continue;
+                            }
+
+                            $preview_path = $design_path . DIRECTORY_SEPARATOR . $parts[1];
+                            $candidate = $preview_path . DIRECTORY_SEPARATOR . $parts[2];
+                            if ( realpath( $preview_path ) === $preview_path
+                                && realpath( $candidate ) === $candidate && is_file( $candidate ) ) {
+                                $files[] = $candidate;
                             }
                         }
                         $pathZip = NBDESIGNER_DATA_DIR.'/download/customer-design-'.time().'.zip';
