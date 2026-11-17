@@ -84,6 +84,7 @@ const TIER_5_DAYS_PRESETS = [1, 7, 30, 90, 180];
 const TIER_3_DAYS_PRESETS = [1, 7, 14, 30, 90];
 const SAVED_DESIGNS_RETENTION_PRESETS = [180, 365, 545, 730];
 const SAVED_DESIGNS_WARNING_PRESETS = [1, 3, 7, 14, 30];
+const TEMP_RETENTION_PRESETS = [7, 30, 90, 180, 365];
 
 const getClosestPresetIndex = (val, presets, fallbackIdx = 0) => {
   const num = parseInt(val, 10) || presets[fallbackIdx];
@@ -1040,7 +1041,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '1.0.8'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '1.0.9'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">
@@ -2566,8 +2567,8 @@ export default function App() {
                 </div>
 
                 {settings.enable_temp_cleanup && (
-                  <div className="pt-3 border-t border-slate-100 space-y-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="pt-3 border-t border-slate-100 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
                       <label className="text-xs font-bold text-slate-700">
                         Unreferenced Temp File Retention Window:
                       </label>
@@ -2586,23 +2587,33 @@ export default function App() {
                         <span className="text-xs font-bold text-slate-600">Days</span>
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {[7, 30, 90, 180, 365].map((d) => (
+                    <input
+                      type="range"
+                      min="0"
+                      max="4"
+                      step="1"
+                      value={getClosestPresetIndex(settings.temp_retention_days, TEMP_RETENTION_PRESETS, 1)}
+                      onChange={(e) => {
+                        const idx = parseInt(e.target.value, 10);
+                        setSettings({ ...settings, temp_retention_days: TEMP_RETENTION_PRESETS[idx] });
+                      }}
+                      className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                    />
+                    <div className="flex justify-between text-xs text-slate-500 mt-1.5 select-none">
+                      {TEMP_RETENTION_PRESETS.map((d) => (
                         <button
                           key={d}
                           type="button"
                           onClick={() => setSettings({ ...settings, temp_retention_days: d })}
-                          className={`px-3 py-1 rounded-lg text-xs font-semibold border transition cursor-pointer ${
-                            (settings.temp_retention_days || 30) === d
-                              ? 'bg-indigo-600 text-white border-indigo-600'
-                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                          className={`cursor-pointer hover:text-slate-800 transition ${
+                            (settings.temp_retention_days || 30) === d ? 'font-bold text-indigo-700' : 'text-slate-400'
                           }`}
                         >
                           {d === 30 ? '30d (Default)' : `${d}d`}
                         </button>
                       ))}
                     </div>
-                    <p className="text-[11px] text-slate-500">
+                    <p className="text-[11px] text-slate-500 pt-1">
                       Runs incrementally after daily sweeps: only scans newly modified <code>designs/</code> folders since the last scan and stores references in <code>wp_nbd_s3_temp_refs</code>.
                     </p>
                   </div>
