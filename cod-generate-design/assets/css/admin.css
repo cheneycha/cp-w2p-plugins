@@ -1,0 +1,229 @@
+.table-wrapper {
+    margin-top: 20px;
+    background-color: #fff;
+}
+.table-wrapper .dataTables_wrapper .dataTables_length select {
+    width: 55px;
+}
+/*
+.notice {
+   display: none !important;
+}
+*/
+.bulk-price-form {
+    background-color: #fff;
+    margin-top: 20px;
+}
+.bulk-price-row {
+    display: flex;
+    align-items: center;
+    padding: 10px 15px;
+    border-bottom: 1px solid #f9f5f5;
+}
+.bulk-price-row label{
+    flex-basis: 200px;
+    max-width: 200px;
+    text-align: right;
+    padding-right: 15px;
+}
+.bulk-price-attributes {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+}
+.bulk-attribute-row {
+    padding: 10px;
+}
+.bulk-attribute-item {
+    float: left;
+    width: 20%;
+
+    padding: 5px;
+    text-align: center;
+    box-sizing: border-box;
+}
+.bulk-attribute-content {
+    padding: 5px;
+    border: 1px solid #e3e3e3;
+}
+.bulk-attribute-item label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 12px;
+    font-weight: 700;
+}
+.components-button.is-primary {
+    white-space: nowrap;
+    background: #007cba;
+    color: #fff;
+    text-decoration: none;
+    text-shadow: none;
+    outline: 1px solid transparent;
+    height: 36px;
+    border: 0;
+    padding: 0 20px;
+    border-radius: 5px;
+}
+
+.bulk-price-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 25px;
+}
+
+.alt-bp-table-price-input {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.alt-bp-table-price-input span.woocommerce-Price-amount {
+    display: inline-flex;
+    margin-right: 3px;
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.alt-bp-table-price-input input,
+.alt-bp-table-price-attribute input {
+    width: 60px;
+    text-align: center;
+}
+
+table.dataTable thead th:first-child div.DataTables_sort_wrapper,
+table.dataTable thead th:nth-child(2) div.DataTables_sort_wrapper,
+table.dataTable thead th:nth-child(3) div.DataTables_sort_wrapper {
+    white-space: nowrap;
+}
+
+.alt-bp-table-price-attribute {
+    text-align: center;
+}
+
+#table-bulk-price tr.alt-loading {
+    background-image: linear-gradient(to right, transparent 50%, rgba(0, 0, 0, .05) 50%);
+    background-size: 200% 100%;
+    animation: alt-loading 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+#table-bulk-price tr.alt-loading td {
+    opacity: .45;
+    pointer-events: none;
+}
+
+@keyframes alt-loading {
+    0% {
+      background-position: 0;
+    }
+    50% {
+      background-position: -30%;
+    }
+    80% {
+      background-position: -100%;
+    }
+    100% {
+      background-position: -200%;
+    }
+  }
+  
+  #result-bulk-price {
+    width: 500px;
+    position: fixed;
+    right: 20px;
+    left: 181px;
+    bottom: 5px;
+    z-index: 99999;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.7s;
+  }
+
+  .result-bulk-price-content {
+    background: #fff;
+    margin: 0 auto;
+    padding: 15px 20px;
+    transform: translate(0, 200px);
+    width: 500px;
+    height: 100px;
+    overflow-y: auto;
+    box-shadow: rgba(99, 99, 99, 0.2) 0px 2px 8px 0px;
+    transition: transform 0.3s ease-in-out 0.3s;
+  }
+  #result-bulk-price.active {
+    visibility: visible;
+    opacity: 1;
+  }
+  #result-bulk-price.active .result-bulk-price-content {
+        transform: translate(0, 0);
+  }
+
+  body.folded #result-bulk-price {
+    left: 58px;
+  }
+
+  #table-bulk-price tbody tr td {
+      text-align: center;
+  }
+
+  .result-bulk-price-content ul {
+      margin: 0;
+  }
+
+  .result-bulk-price-content ul li {
+    border-bottom: 1px dashed #e3e3e3;
+    padding: 6px 0 8px;
+    margin-bottom: 0;
+  }
+
+  .result-bulk-price-content ul li a {
+    text-decoration: none;
+  }
+
+  .modal-backdrop {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 44444;
+    background-color: #000;
+    opacity: .5;
+}
+
+.bulk_price_import_wrapper {
+    background: #fff;
+    display: block;
+    width: 200px;
+    border: 1px solid #ccc;
+    padding: 10px 15px;
+    margin-top: 20px;
+}
+
+.bulk_price_import_wrapper .button-primary {
+    margin-top: 10px;
+}
+
+.dataTables_wrapper .dataTables_paginate .fg-button {
+    height: auto;
+    padding: 0 13px !important;
+    background: #f9f9f9;
+}
+.dataTables_wrapper .dataTables_paginate .fg-button.ui-state-disabled:not(.previous) {
+    background: #fff;
+    font-weight: 700;
+}
+
+
+.wp-core-ui .bulkprice-remove-button {
+    color: #fff;
+    background-color: #dc3545;
+    border-color: #dc3545;
+}
+
+.wp-core-ui .bulkprice-remove-button:hover,
+.wp-core-ui .bulkprice-remove-button:focus {
+    color: #fff;
+    background-color: #c82333;
+    border-color: #bd2130;
+}
