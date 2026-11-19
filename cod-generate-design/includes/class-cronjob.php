@@ -118,7 +118,7 @@ class COD_CronJob {
         $this->hook = 'woocommerce_payment_complete';
         //cod_write_log_order('woocommerce_payment_complete');
         
-        insert_auto_generate($order_id);
+        $this->insert_auto_generate($order_id);
     }
 
     public function insert_auto_generate($order_id) {
