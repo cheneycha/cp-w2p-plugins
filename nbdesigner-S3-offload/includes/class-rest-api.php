@@ -90,6 +90,18 @@ class NBD_S3_REST_API {
             'permission_callback' => array( __CLASS__, 'check_permission' ),
         ) );
 
+        register_rest_route( self::NAMESPACE, '/download/stats', array(
+            'methods'             => \WP_REST_Server::READABLE,
+            'callback'            => array( __CLASS__, 'get_download_stats' ),
+            'permission_callback' => array( __CLASS__, 'check_permission' ),
+        ) );
+
+        register_rest_route( self::NAMESPACE, '/download/sweep-now', array(
+            'methods'             => \WP_REST_Server::CREATABLE,
+            'callback'            => array( __CLASS__, 'trigger_download_sweep' ),
+            'permission_callback' => array( __CLASS__, 'check_permission' ),
+        ) );
+
         register_rest_route( self::NAMESPACE, '/whitelist/restore-all', array(
             'methods'             => \WP_REST_Server::CREATABLE,
             'callback'            => array( __CLASS__, 'restore_whitelisted_templates' ),
@@ -500,6 +512,7 @@ class NBD_S3_REST_API {
         if ( $new_pause_state ) {
             set_transient( 'nbd_s3_saved_purge_cancelled', 1, 300 );
             set_transient( 'nbd_s3_temp_sweep_cancelled', 1, 300 );
+            set_transient( 'nbd_s3_download_sweep_cancelled', 1, 300 );
             if ( function_exists( 'as_unschedule_all_actions' ) ) {
                 as_unschedule_all_actions( 'nbd_s3_async_offload_item' );
                 as_unschedule_all_actions( 'nbd_s3_chain_cold_sweep' );
@@ -507,6 +520,7 @@ class NBD_S3_REST_API {
                 as_unschedule_all_actions( 'nbd_s3_chain_saved_designs_purge' );
                 as_unschedule_all_actions( 'nbd_s3_chain_temp_index' );
                 as_unschedule_all_actions( 'nbd_s3_chain_temp_sweep' );
+                as_unschedule_all_actions( 'nbd_s3_chain_download_sweep' );
             }
             delete_transient( 'nbd_s3_sync_status' );
         }
@@ -768,6 +782,56 @@ class NBD_S3_REST_API {
             'message'     => $res['message'] ?? __( 'Temp folder sweep completed.', 'nbd-s3-offload' ),
             'temp_stats'  => NBD_S3_Temp_Lifecycle::get_stats(),
             'sync_status' => NBD_S3_Tier_Lifecycle::get_sync_status(),
+        ), 200 );
+    }
+
+    /**
+     * GET /download/stats
+     */
+    public static function get_download_stats(): \WP_REST_Response {
+        return new \WP_REST_Response( NBD_S3_Download_Lifecycle::get_stats(), 200 );
+    }
+
+    /**
+     * POST /download/sweep-now
+     */
+    public static function trigger_download_sweep(): \WP_REST_Response {
+        $already_running = NBD_S3_Tier_Lifecycle::has_action_in_queue( 'nbd_s3_chain_download_sweep', array( 'pending', 'in-progress' ) );
+        if ( $already_running ) {
+            return new \WP_REST_Response( array(
+                'success'        => true,
+                'already_queued' => true,
+                'message'        => __( 'Download folder sweep is already running in the background.', 'nbd-s3-offload' ),
+                'download_stats' => NBD_S3_Download_Lifecycle::get_stats(),
+                'sync_status'    => NBD_S3_Tier_Lifecycle::get_sync_status(),
+            ), 200 );
+        }
+
+        delete_transient( 'nbd_s3_download_sweep_cancelled' );
+
+        if ( function_exists( 'as_schedule_single_action' ) ) {
+            as_schedule_single_action( time() + 1, 'nbd_s3_chain_download_sweep', array( true ) );
+            if ( function_exists( 'spawn_cron' ) ) {
+                spawn_cron();
+            }
+            $msg = __( 'Aged download/ archive purge queued in the background (auto-chaining active).', 'nbd-s3-offload' );
+            NBD_S3_Logger::log( 'DOWNLOAD_PURGE', $msg, array(), 'info' );
+
+            return new \WP_REST_Response( array(
+                'success'        => true,
+                'queued'         => true,
+                'message'        => $msg,
+                'download_stats' => NBD_S3_Download_Lifecycle::get_stats(),
+                'sync_status'    => NBD_S3_Tier_Lifecycle::get_sync_status(),
+            ), 200 );
+        }
+
+        $res = NBD_S3_Download_Lifecycle::run_download_sweep( true );
+        return new \WP_REST_Response( array(
+            'success'        => $res['success'] ?? true,
+            'message'        => $res['message'] ?? __( 'Download folder sweep completed.', 'nbd-s3-offload' ),
+            'download_stats' => NBD_S3_Download_Lifecycle::get_stats(),
+            'sync_status'    => NBD_S3_Tier_Lifecycle::get_sync_status(),
         ), 200 );
     }
 }

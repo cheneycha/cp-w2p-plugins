@@ -65,6 +65,12 @@ NBDesigner stores both templates and guest orders as sibling folders inside `wp-
 
 [ Tier 6: Customer Saved Designs Lifecycle & Auto-Purge ]
   └── Customer Saved Designs (6, 12, 18, 24 mo retention, warning banners, notification emails)
+
+[ Tier 7: Reference-Aware Temp Uploads Lifecycle (`temp/`) ]
+  └── Unreferenced Studio Uploads (> 30d default, indexed via wp_nbd_s3_temp_refs, pdf-templates/ protected)
+
+[ Tier 8: On-Demand Download Archive Retention (`download/`) ]
+  └── Regenerable Export ZIPs (> 7d default, safe age-based purge for customer-design-*.zip)
 ```
 
 ### Detailed Tier Rules:
@@ -131,6 +137,25 @@ NBDesigner stores both templates and guest orders as sibling folders inside `wp-
 - **Loco Translate Full Compatibility**:
   - All frontend notices, countdown badges, and email templates use standard WordPress gettext functions (`__()`, `_e()`, `_n()`, `esc_html__()`) mapped to domain `nbd-s3-offload` and indexed in `languages/nbd-s3-offload.pot`.
   - Can be translated, customized, or rebranded directly inside Loco Translate without developer intervention.
+
+#### Tier 7: Reference-Aware Temp Uploads Lifecycle (`temp/`)
+- **Scope**: User-uploaded images, artwork, and rasterized PDF pages inside `wp-content/uploads/nbdesigner/temp/`.
+- **Zero-Data-Loss Reference Index (`wp_nbd_s3_temp_refs`)**:
+  - Scans `designs/` (`design.json`, `config.json`, `product.json`, `option.json`, `used_font.json`, `*.svg`, `part/*.svg`), remote S3/Bunny JSON manifests for full-purged orders, WooCommerce order meta (`_nbd`), active/persistent carts (`wp_woocommerce_sessions`, `_woocommerce_persistent_cart%`), `wp_postmeta` (`_designer_setting*`), `wp_nbdesigner_options`, `wp_options`, and auxiliary directories (`admindesign/`, `suggest_designs/`, `data/`).
+  - Supports incremental daily scans (checking `mtime` of design folders and JSON/SVG subfiles) as well as full baseline rebuilds (`POST /temp/index-now`), with `ref_hash CHAR(32)` + `VARCHAR(512)` UTF-8/Unicode/NFC/NFD and `.JPG`/`.jpg` normalized lookup.
+- **Configurable Retention & Protected Paths**:
+  - Configurable retention slider (`7d`, `30d (Default)`, `90d`, `180d`, `365d`, or custom `1–3650` days) via `enable_temp_cleanup` / `temp_retention_days`.
+  - Permanently protects `temp/pdf-templates/`, paired `_preview` / `.pdf` companion files, multi-page `_0.._N.png` PDFs, and all files still referenced in `wp_nbd_s3_temp_refs`.
+- **Auto-Chaining Sweep & Manual Controls**:
+  - Runs in safe cursor-tracked batches (2,000 checks / 1,000 deletes per Action Scheduler step) via daily `nbd_s3_cron_temp_cleanup` or manual **"Rebuild Index"** / **"Purge Orphaned Temp Now"** (`POST /temp/sweep-now`), logging results under `TEMP_INDEX` and `TEMP_PURGE`.
+
+#### Tier 8: On-Demand Download Archive Retention (`download/`)
+- **Scope**: Generated `.zip` export packages inside `wp-content/uploads/nbdesigner/download/` (`customer-design-*.zip`).
+- **Safe Regeneration Guarantee**:
+  - NBDesigner's `nbd_zip_files_and_download()` always unlinks and rebuilds `.zip` archives on demand from `designs/{item_key}/` (hydrated from S3 automatically when needed), and `cod-generate-design` never reads from `download/`.
+- **Configurable Retention & Sweep**:
+  - Opt-in toggle (`enable_download_cleanup`) and retention slider (`1d`, `7d (Default)`, `14d`, `30d`, `90d`, or custom `1–3650` days via `download_retention_days`) to keep a short buffer for in-flight downloads.
+  - Runs daily via `nbd_s3_cron_download_cleanup` or manually via **"Purge Aged Downloads Now"** (`POST /download/sweep-now`), displaying live `Total Archives` and `Aged (> Xd)` stats (`GET /download/stats`) and logging `DOWNLOAD_PURGE` events.
 
 ---
 

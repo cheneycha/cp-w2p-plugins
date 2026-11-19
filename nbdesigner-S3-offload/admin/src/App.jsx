@@ -85,6 +85,7 @@ const TIER_3_DAYS_PRESETS = [1, 7, 14, 30, 90];
 const SAVED_DESIGNS_RETENTION_PRESETS = [180, 365, 545, 730];
 const SAVED_DESIGNS_WARNING_PRESETS = [1, 3, 7, 14, 30];
 const TEMP_RETENTION_PRESETS = [7, 30, 90, 180, 365];
+const DOWNLOAD_RETENTION_PRESETS = [1, 7, 14, 30, 90];
 
 const getClosestPresetIndex = (val, presets, fallbackIdx = 0) => {
   const num = parseInt(val, 10) || presets[fallbackIdx];
@@ -237,6 +238,8 @@ export default function App() {
   const [tempStats, setTempStats] = useState(null);
   const [indexingTemp, setIndexingTemp] = useState(false);
   const [sweepingTemp, setSweepingTemp] = useState(false);
+  const [downloadStats, setDownloadStats] = useState(null);
+  const [sweepingDownload, setSweepingDownload] = useState(false);
   const [restoringTemplates, setRestoringTemplates] = useState(false);
   const [notice, setNotice] = useState(null);
 
@@ -348,6 +351,18 @@ export default function App() {
     }
   };
 
+  const fetchDownloadStats = async () => {
+    try {
+      const res = await fetch(`${config.restUrl}/download/stats`, { headers: getHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setDownloadStats(data);
+      }
+    } catch (err) {
+      console.error('Failed to load download stats:', err);
+    }
+  };
+
   const fetchStats = async (force = false) => {
     setLoading(true);
     try {
@@ -363,6 +378,7 @@ export default function App() {
         }
       }
       fetchTempStats();
+      fetchDownloadStats();
     } catch (err) {
       console.error('Failed to load stats:', err);
     } finally {
@@ -705,6 +721,34 @@ export default function App() {
     }
   };
 
+  const handleDownloadSweepNow = async () => {
+    const retentionDays = settings.download_retention_days || 7;
+    const confirmMsg = `Purge aged export archives in wp-content/uploads/nbdesigner/download/ older than ${retentionDays} days?\n\nThese are temporary ZIP packages generated on demand and can be regenerated anytime from designs/. Proceed?`;
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+    setSweepingDownload(true);
+    try {
+      const res = await fetch(`${config.restUrl}/download/sweep-now`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+      const data = await safeJson(res);
+      if (res.ok && data.success) {
+        showNotice('success', data.message || 'Download folder sweep queued in background.');
+        if (data.download_stats) setDownloadStats(data.download_stats);
+        if (data.sync_status) setSyncStatus(data.sync_status);
+        fetchLogs();
+      } else {
+        showNotice('error', data.message || 'Download folder sweep failed.');
+      }
+    } catch (err) {
+      showNotice('error', 'Download sweep error: ' + err.message);
+    } finally {
+      setSweepingDownload(false);
+    }
+  };
+
   const handleCleanupDraftsNow = async () => {
     const retentionDays = settings.abandoned_drafts_days || 7;
     const confirmMsg = `Run manual purge for abandoned guest drafts now?\n\nThis will safely purge orphan guest draft folders older than ${retentionDays} days that have no WooCommerce order, no saved customer account record, and are not in any active cart.\n\nProcessing runs automatically in safe 500-folder batches via Action Scheduler until all abandoned drafts are cleared. Proceed?`;
@@ -1041,7 +1085,7 @@ export default function App() {
                 <Sparkles className="w-3 h-3 text-indigo-300" /> Tiered Storage Engine
               </span>
               <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-400/20">
-                v{window.nbdS3OffloadConfig?.version || '1.1.0'} • PHP 8.3 & HPOS
+                v{window.nbdS3OffloadConfig?.version || '1.1.1'} • PHP 8.3 & HPOS
               </span>
             </div>
             <p className="text-indigo-200/80 text-xs mt-1.5 max-w-2xl leading-normal">
@@ -2620,6 +2664,88 @@ export default function App() {
                 )}
               </div>
 
+              {/* Download Folder Lifecycle (On-Demand ZIP Retention) */}
+              <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-xl bg-sky-50 text-sky-700 border border-sky-200 mt-0.5">
+                      <Archive className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-sky-100 text-sky-800 border border-sky-200">
+                          DOWNLOAD FOLDER
+                        </span>
+                        <h3 className="text-sm font-bold text-slate-900">
+                          On-Demand Download Archive Retention
+                        </h3>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                        Purges aged <code>.zip</code> export archives in <code>wp-content/uploads/nbdesigner/download/</code>. NBDesigner regenerates these ZIPs on demand from <code>designs/</code> whenever downloaded again.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex-shrink-0">
+                    <ToggleSwitch
+                      checked={settings.enable_download_cleanup}
+                      onChange={(val) => setSettings({ ...settings, enable_download_cleanup: val })}
+                      activeColor="bg-indigo-600"
+                      ariaLabel="Enable Automated Download Folder Cleanup"
+                    />
+                  </div>
+                </div>
+
+                {settings.enable_download_cleanup && (
+                  <div className="pt-3 border-t border-slate-100 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                      <label className="text-xs font-bold text-slate-700">
+                        Aged Download Archive Retention Window:
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min="1"
+                          max="3650"
+                          value={settings.download_retention_days || 7}
+                          onChange={(e) => {
+                            const val = Math.max(1, Math.min(3650, parseInt(e.target.value, 10) || 1));
+                            setSettings({ ...settings, download_retention_days: val });
+                          }}
+                          className="w-20 px-2 py-0.5 text-xs font-bold text-center rounded-lg border border-slate-300 bg-white text-slate-800 shadow-2xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                        />
+                        <span className="text-xs font-bold text-slate-600">Days</span>
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="4"
+                      step="1"
+                      value={getClosestPresetIndex(settings.download_retention_days, DOWNLOAD_RETENTION_PRESETS, 1)}
+                      onChange={(e) => {
+                        const idx = parseInt(e.target.value, 10);
+                        setSettings({ ...settings, download_retention_days: DOWNLOAD_RETENTION_PRESETS[idx] });
+                      }}
+                      className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                    />
+                    <div className="flex justify-between text-xs text-slate-500 mt-1.5 select-none">
+                      {DOWNLOAD_RETENTION_PRESETS.map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => setSettings({ ...settings, download_retention_days: d })}
+                          className={`cursor-pointer hover:text-slate-800 transition ${
+                            (settings.download_retention_days || 7) === d ? 'font-bold text-indigo-700' : 'text-slate-400'
+                          }`}
+                        >
+                          {d === 7 ? '7d (Default)' : `${d}d`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Activity Log Protection Configuration */}
               <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
                 <div className="flex items-center justify-between gap-4">
@@ -3170,6 +3296,40 @@ export default function App() {
                     {sweepingTemp ? 'Starting Sweep...' : 'Purge Orphaned Temp Now'}
                   </button>
                 </div>
+              </div>
+            </div>
+
+            {/* Download Folder Aged Archive Purge */}
+            <div className="border-t border-slate-100 pt-5 mt-5">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50 p-5 rounded-xl border border-slate-200">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-100 text-sky-800 border border-sky-200">
+                      DOWNLOAD FOLDER SWEEP
+                    </span>
+                    <h4 className="text-sm font-bold text-slate-900">Purge Aged <code>download/</code> Archives</h4>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-1">
+                    Deletes generated <code>.zip</code> export packages in <code>download/</code> older than {settings.download_retention_days || 7} days.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-3 mt-2.5 text-xs">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-slate-700">
+                      <Archive className="w-3.5 h-3.5 text-slate-500" /> Total Archives: <strong>{downloadStats?.total_files ?? 0}</strong> ({downloadStats?.total_size_formatted || '0 B'})
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-slate-700">
+                      <Clock className="w-3.5 h-3.5 text-slate-500" /> Aged (&gt; {settings.download_retention_days || 7}d): <strong>{downloadStats?.aged_files ?? 0}</strong> ({downloadStats?.aged_size_formatted || '0 B'})
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDownloadSweepNow}
+                  disabled={sweepingDownload}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold shadow-sm transition whitespace-nowrap text-xs sm:text-sm cursor-pointer self-start md:self-center"
+                >
+                  {sweepingDownload ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  {sweepingDownload ? 'Purging...' : 'Purge Aged Downloads Now'}
+                </button>
               </div>
             </div>
           </div>
